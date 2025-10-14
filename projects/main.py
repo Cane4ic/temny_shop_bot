@@ -7,24 +7,31 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, WebAppInfo, FSInputFile
-import openpyxl
 import asyncio
+import csv
+import aiohttp
 
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
-EXCEL_FILE = "products.xlsx"
+GOOGLE_SHEET_CSV_URL = os.environ.get("GOOGLE_SHEET_CSV_URL")  # ссылка на опубликованный CSV Google Sheet
 
 # ---------- FLASK ----------
 app = Flask(__name__)
 
-def read_products():
-    wb = openpyxl.load_workbook(EXCEL_FILE)
-    sheet = wb.active
+async def fetch_products_from_google_sheet():
     products = {}
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-        name, price, stock, category = row
-        products[name] = {"price": price, "stock": stock, "category": category}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(GOOGLE_SHEET_CSV_URL) as resp:
+            text = await resp.text()
+            reader = csv.DictReader(text.splitlines())
+            for row in reader:
+                name = row.get("Name")
+                price = row.get("Price", "0")
+                stock = row.get("Stock", "0")
+                category = row.get("Category", "Other")
+                if name:
+                    products[name] = {"price": price, "stock": stock, "category": category}
     return products
 
 @app.route("/")
@@ -33,7 +40,8 @@ def index():
 
 @app.route("/products")
 def get_products():
-    products = read_products()
+    # Flask не умеет напрямую работать с async, поэтому используем asyncio.run
+    products = asyncio.run(fetch_products_from_google_sheet())
     return jsonify(products)
 
 def run_flask():
