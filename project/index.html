@@ -30,7 +30,6 @@
     padding:12px;
   }
 
-  /* App shell sized for mobile / Telegram WebApp */
   .app{
     width:100%;
     max-width:420px;
@@ -63,7 +62,6 @@
     letter-spacing:2px;
   }
 
-  /* List of big buttons */
   .menu {
     padding: 18px 12px;
     display:flex;
@@ -88,7 +86,6 @@
     overflow:hidden;
   }
   .big-btn:before{
-    /* soft outer glow */
     content:"";
     position:absolute;
     inset:-6px;
@@ -116,7 +113,6 @@
     width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:18px;
   }
 
-  /* Page stack (SPA) */
   .view{
     flex:1 1 auto;
     overflow:hidden;
@@ -129,7 +125,6 @@
     padding:0 12px 24px;
   }
 
-  /* Product list page */
   .backbar{
     display:flex;align-items:center;gap:12px;padding:12px 6px;
   }
@@ -151,10 +146,8 @@
   .pmeta .desc{font-size:12px;color:var(--muted);margin-top:6px}
   .pmeta .price{font-size:14px;font-weight:700;color:#fff;margin-top:6px}
 
-  /* footer spacing (makes layout centered vertically like screenshot) */
   .spacer{height:8vh;flex:0 0 auto}
 
-  /* small screens adjustments */
   @media (max-width:380px){
     .title{font-size:34px}
     .big-btn{padding:12px}
@@ -165,34 +158,19 @@
 </head>
 <body>
   <div class="app" id="app">
-    <!-- MAIN MENU VIEW -->
     <div class="view" data-view="menu">
       <div class="header">
         <h1 class="title">TEMNY SHOP</h1>
         <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
       </div>
 
-      <div class="menu" role="navigation" aria-label="Категории">
-        <div class="big-btn" data-target="google" onclick="openCategory('google')">
-          <div class="icon-wrap" aria-hidden>✦</div>
-          <div class="btn-label">GOOGLE GEMINI PRO</div>
-          <div class="chev">˅</div>
-        </div>
-
-        <div class="big-btn" data-target="tiktok" onclick="openCategory('tiktok')">
-          <div class="icon-wrap" aria-hidden>♪</div>
-          <div class="btn-label">TIKTOK MONETIZATION</div>
-          <div class="chev">˅</div>
-        </div>
-
-        <!-- Add more categories here -->
-        <div style="height:6vh"></div>
+      <div class="menu" id="menuCategories" role="navigation" aria-label="Категории">
+        <!-- категории будут добавляться сюда динамически -->
       </div>
 
       <div class="spacer"></div>
     </div>
 
-    <!-- PRODUCTS VIEW (dynamic) -->
     <div class="view" data-view="products" style="display:none">
       <div class="backbar">
         <div class="backbtn" onclick="goBack()" aria-label="Назад">←</div>
@@ -200,9 +178,7 @@
       </div>
 
       <div class="list-wrap">
-        <div class="products" id="productsList">
-          <!-- products appended here -->
-        </div>
+        <div class="products" id="productsList"></div>
       </div>
 
       <div style="height:6vh"></div>
@@ -231,6 +207,24 @@ async function loadCatalog() {
     }
   } catch (err) {
     console.error("Ошибка загрузки товаров:", err);
+  }
+}
+
+// функция для рендера категорий в меню
+function renderCategories(){
+  const menu = document.getElementById('menuCategories');
+  menu.innerHTML = '';
+  for(const [key, cat] of Object.entries(CATALOG)){
+    const div = document.createElement('div');
+    div.className = 'big-btn';
+    div.dataset.target = key;
+    div.innerHTML = `
+      <div class="icon-wrap">✦</div>
+      <div class="btn-label">${cat.title}</div>
+      <div class="chev">˅</div>
+    `;
+    div.onclick = ()=>openCategory(key);
+    menu.appendChild(div);
   }
 }
 
@@ -278,16 +272,9 @@ function showView(name){
   try{ if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.ready) window.Telegram.WebApp.MainButton.hide(); }catch(e){}
 }
 
-// Инициализация
 async function initWebApp(){
   await loadCatalog();
-
-  // Привязываем кнопки категорий к ключам из CATALOG
-  document.querySelectorAll('.big-btn').forEach(btn=>{
-    const catKey = btn.getAttribute('data-target');
-    btn.onclick = ()=>openCategory(catKey);
-  });
-
+  renderCategories();
   showView('menu');
 }
 
@@ -300,7 +287,5 @@ try{
   }
 }catch(e){}
 </script>
-
-
 </body>
 </html>
