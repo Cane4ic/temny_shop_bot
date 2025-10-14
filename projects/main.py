@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, WebAppInfo, FSInputFile
+from aiogram.types import Message, WebAppInfo, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 import csv
 import aiohttp
@@ -65,6 +65,14 @@ class AdminAction(StatesGroup):
     waiting_for_new_item = State()
     waiting_for_restock = State()
     waiting_for_new_price = State()
+    waiting_for_broadcast_message = State()
+    waiting_for_edit_name = State()
+    waiting_for_edit_price = State()
+    waiting_for_edit_stock = State()
+    waiting_for_edit_category = State()
+
+# Словарь для временного хранения данных при редактировании
+temp_edit_data = {}
 
 # --- BOT HANDLERS ---
 @dp.message(lambda m: m.text == "/start")
@@ -107,9 +115,88 @@ async def process_password(message: Message, state: FSMContext):
 
     if login == ADMIN_LOGIN and password == ADMIN_PASSWORD:
         admins.add(user_id)
-        await message.answer("Вы авторизованы ✅")
+        
+        # Создаём кнопки для действий
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton(text="Редактировать товар", callback_data="edit_product"),
+            InlineKeyboardButton(text="Сделать рассылку", callback_data="broadcast")
+        )
+
+        # Отправляем приветственное сообщение с кнопками
+        await message.answer(
+            "✅ Вы авторизованы\n\n"
+            "Добро пожаловать в Admin Panel.\n\n"
+            "Пожалуйста выберите действие, которое хотите сделать ниже:",
+            reply_markup=keyboard
+        )
     else:
-        await message.answer("Неверный логин или пароль ❌")
+        await message.answer("❌ Неверный логин или пароль")
+    await state.clear()
+
+# --- CALLBACK HANDLERS ---
+@dp.callback_query(lambda c: c.data == "edit_product")
+async def callback_edit_product(callback_query: types.CallbackQuery):
+    await callback_query.message.answer(
+        "Вы выбрали: Редактировать товар\n\n"
+        "Введите название товара, который хотите изменить:"
+    )
+    await AdminAction.waiting_for_edit_name.set()
+
+@dp.message(AdminAction.waiting_for_edit_name)
+async def edit_name(message: Message, state: FSMContext):
+    temp_edit_data["name"] = message.text
+    await message.answer("Введите новую цену товара:")
+    await AdminAction.waiting_for_edit_price.set()
+
+@dp.message(AdminAction.waiting_for_edit_price)
+async def edit_price(message: Message, state: FSMContext):
+    temp_edit_data["price"] = message.text
+    await message.answer("Введите новое количество товара:")
+    await AdminAction.waiting_for_edit_stock.set()
+
+@dp.message(AdminAction.waiting_for_edit_stock)
+async def edit_stock(message: Message, state: FSMContext):
+    temp_edit_data["stock"] = message.text
+    await message.answer("Введите новую категорию товара:")
+    await AdminAction.waiting_for_edit_category.set()
+
+@dp.message(AdminAction.waiting_for_edit_category)
+async def edit_category(message: Message, state: FSMContext):
+    temp_edit_data["category"] = message.text
+
+    # Здесь логика обновления в Google Sheet через API или CSV
+    # Пока просто подтверждение
+    await message.answer(
+        f"Товар <b>{temp_edit_data['name']}</b> обновлён:\n"
+        f"Цена: {temp_edit_data['price']}\n"
+        f"Количество: {temp_edit_data['stock']}\n"
+        f"Категория: {temp_edit_data['category']}",
+        parse_mode="HTML"
+    )
+    temp_edit_data.clear()
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "broadcast")
+async def callback_broadcast(callback_query: types.CallbackQuery):
+    await callback_query.message.answer(
+        "Вы выбрали: Сделать рассылку\n\nВведите текст сообщения для рассылки:"
+    )
+    await AdminAction.waiting_for_broadcast_message.set()
+
+@dp.message(AdminAction.waiting_for_broadcast_message)
+async def broadcast_message(message: Message, state: FSMContext):
+    # Здесь должен быть список пользователей, например из Google Sheets или файла
+    users = []  # TODO: заменить на список ID пользователей
+    text = message.text
+    success = 0
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text)
+            success += 1
+        except:
+            continue
+    await message.answer(f"✅ Сообщение отправлено {success} пользователям")
     await state.clear()
 
 # ---------- MAIN ----------
