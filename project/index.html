@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>TEMNY SHOP — WebApp</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000;
+    --panel:#0b0b0b;
+    --glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);
+    --accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);
+    --text:#ffffff;
+    --muted: rgba(255,255,255,0.55);
+    --btn-inner: rgba(255,255,255,0.03);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:12px;
+  }
+
+  /* App shell sized for mobile / Telegram WebApp */
+  .app{
+    width:100%;
+    max-width:420px;
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+    align-items:stretch;
+  }
+
+  .header{
+    text-align:center;
+    margin-top:6vh;
+  }
+  .title{
+    font-family: "Cinzel Decorative", "Cinzel Decorative", serif;
+    font-size:38px;
+    letter-spacing:2px;
+    color:#fff;
+    text-shadow: 0 2px 0 rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.7);
+    margin:0;
+  }
+  .subtitle{
+    margin-top:10px;
+    font-size:16px;
+    line-height:1.25;
+    color:var(--muted);
+    font-weight:300;
+    text-transform:uppercase;
+    letter-spacing:2px;
+  }
+
+  /* List of big buttons */
+  .menu {
+    padding: 18px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+    align-items:stretch;
+    flex:0 0 auto;
+  }
+
+  .big-btn{
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.35));
+    border-radius:18px;
+    padding:14px 14px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.7), 0 6px 20px rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.04);
+    cursor:pointer;
+    transition: transform .14s ease, box-shadow .14s ease;
+    position:relative;
+    overflow:hidden;
+  }
+  .big-btn:before{
+    /* soft outer glow */
+    content:"";
+    position:absolute;
+    inset:-6px;
+    border-radius:22px;
+    box-shadow: 0 0 30px rgba(255,255,255,0.06);
+    pointer-events:none;
+    opacity:0.9;
+    mix-blend-mode:screen;
+  }
+  .big-btn:hover{ transform:translateY(-4px); box-shadow: 0 28px 60px rgba(0,0,0,0.8); }
+
+  .icon-wrap{
+    width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#0f0f10,#19191c);display:flex;align-items:center;justify-content:center;font-size:28px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+  .btn-label{
+    flex:1;
+    font-weight:700;
+    font-size:20px;
+    letter-spacing:1px;
+    color:#fff;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.6);
+  }
+  .chev{
+    width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:18px;
+  }
+
+  /* Page stack (SPA) */
+  .view{
+    flex:1 1 auto;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  .list-wrap{
+    flex:1 1 auto;
+    overflow:auto;
+    padding:0 12px 24px;
+  }
+
+  /* Product list page */
+  .backbar{
+    display:flex;align-items:center;gap:12px;padding:12px 6px;
+  }
+  .backbtn{
+    width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.03);display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.03);
+    cursor:pointer;
+  }
+  .page-title{font-size:18px;font-weight:700}
+
+  .products{display:flex;flex-direction:column;gap:12px;margin-top:8px}
+  .product{
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.4));
+    border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center;border:1px solid rgba(255,255,255,0.04);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+  }
+  .product .picon{width:56px;height:56px;border-radius:10px;background:#090909;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px}
+  .product .pmeta{flex:1}
+  .pmeta .name{font-size:16px;font-weight:700}
+  .pmeta .desc{font-size:12px;color:var(--muted);margin-top:6px}
+  .pmeta .price{font-size:14px;font-weight:700;color:#fff;margin-top:6px}
+
+  /* footer spacing (makes layout centered vertically like screenshot) */
+  .spacer{height:8vh;flex:0 0 auto}
+
+  /* small screens adjustments */
+  @media (max-width:380px){
+    .title{font-size:34px}
+    .big-btn{padding:12px}
+    .icon-wrap{width:48px;height:48px}
+    .btn-label{font-size:18px}
+  }
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- MAIN MENU VIEW -->
+    <div class="view" data-view="menu">
+      <div class="header">
+        <h1 class="title">TEMNY SHOP</h1>
+        <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
+      </div>
+
+      <div class="menu" role="navigation" aria-label="Категории">
+        <div class="big-btn" data-target="google" onclick="openCategory('google')">
+          <div class="icon-wrap" aria-hidden>✦</div>
+          <div class="btn-label">GOOGLE GEMINI PRO</div>
+          <div class="chev">˅</div>
+        </div>
+
+        <div class="big-btn" data-target="tiktok" onclick="openCategory('tiktok')">
+          <div class="icon-wrap" aria-hidden>♪</div>
+          <div class="btn-label">TIKTOK MONETIZATION</div>
+          <div class="chev">˅</div>
+        </div>
+
+        <!-- Add more categories here -->
+        <div style="height:6vh"></div>
+      </div>
+
+      <div class="spacer"></div>
+    </div>
+
+    <!-- PRODUCTS VIEW (dynamic) -->
+    <div class="view" data-view="products" style="display:none">
+      <div class="backbar">
+        <div class="backbtn" onclick="goBack()" aria-label="Назад">←</div>
+        <div class="page-title" id="catTitle">Категория</div>
+      </div>
+
+      <div class="list-wrap">
+        <div class="products" id="productsList">
+          <!-- products appended here -->
+        </div>
+      </div>
+
+      <div style="height:6vh"></div>
+    </div>
+  </div>
+
+<script>
+let CATALOG = {}; // категории и товары
+
+async function loadCatalog() {
+  try {
+    const res = await fetch('/products');
+    const data = await res.json();
+
+    // создаём категории
+    CATALOG = {};
+    for (const [name, info] of Object.entries(data)) {
+      const cat = info.category || "other";
+      if (!CATALOG[cat]) CATALOG[cat] = { title: cat.toUpperCase(), items: [] };
+      CATALOG[cat].items.push({
+        id: name,
+        name: name,
+        desc: "Премиум товар",
+        price: `$${info.price}`
+      });
+    }
+  } catch (err) {
+    console.error("Ошибка загрузки товаров:", err);
+  }
+}
+
+// Функция открытия категории
+function openCategory(key){
+  const cat = CATALOG[key];
+  if(!cat) return;
+  document.getElementById('catTitle').textContent = cat.title;
+  const cont = document.getElementById('productsList');
+  cont.innerHTML = '';
+  cat.items.forEach(p=>{
+    const el = document.createElement('div');
+    el.className = 'product';
+    el.innerHTML = `
+      <div class="picon">${(p.name||'').charAt(0)}</div>
+      <div class="pmeta">
+        <div class="name">${p.name}</div>
+        <div class="desc">${p.desc}</div>
+        <div class="price">${p.price}</div>
+      </div>
+      <div style="display:flex;align-items:center">
+        <button style="padding:8px 12px;border-radius:10px;border:0;background:var(--btn-inner);color:var(--text);cursor:pointer" onclick="buy('${p.id}','${key}')">Купить</button>
+      </div>
+    `;
+    cont.appendChild(el);
+  });
+  showView('products');
+  document.querySelector('.list-wrap').scrollTop = 0;
+}
+
+function goBack(){ showView('menu'); }
+
+function buy(id,cat){
+  const catObj = CATALOG[cat];
+  const item = (catObj.items || []).find(x=>x.id===id);
+  if(!item) return alert('Товар не найден');
+  const ok = confirm(`Купить "${item.name}" за ${item.price}?`);
+  if(ok){ alert('Заказ оформлен!'); }
+}
+
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>{
+    v.style.display = (v.getAttribute('data-view')===name) ? 'flex' : 'none';
+  });
+  try{ if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.ready) window.Telegram.WebApp.MainButton.hide(); }catch(e){}
+}
+
+// Инициализация
+async function initWebApp(){
+  await loadCatalog();
+
+  // Привязываем кнопки категорий к ключам из CATALOG
+  document.querySelectorAll('.big-btn').forEach(btn=>{
+    const catKey = btn.getAttribute('data-target');
+    btn.onclick = ()=>openCategory(catKey);
+  });
+
+  showView('menu');
+}
+
+initWebApp();
+
+try{
+  if(window.Telegram && window.Telegram.WebApp){
+    window.Telegram.WebApp.ready();
+    if(window.Telegram.WebApp.expand) window.Telegram.WebApp.expand();
+  }
+}catch(e){}
+</script>
+
+
+</body>
+</html>
