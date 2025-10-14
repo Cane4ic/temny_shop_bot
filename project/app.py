@@ -1,9 +1,23 @@
-from flask import Flask, send_file, jsonify
-import os, sqlite3
+from flask import Flask, jsonify, send_file
+import sqlite3, os
 
 app = Flask(__name__)
+DB_PATH = "products.db"
 
-DB_FILE = '/home/render/project/products.db'  # путь к SQLite базе на Render
+# ----------------- Создание таблицы, если её нет -----------------
+conn = sqlite3.connect(DB_PATH)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS products (
+    name TEXT PRIMARY KEY,
+    price REAL,
+    stock INTEGER,
+    category TEXT
+)
+""")
+conn.commit()
+conn.close()
+# ----------------------------------------------------------------
 
 @app.route("/")
 def index():
@@ -11,15 +25,18 @@ def index():
 
 @app.route("/products")
 def get_products():
-    if not os.path.exists(DB_FILE):
-        return jsonify({})  # если база не создана
-
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT name, price, stock, category FROM products")
-    data = {row[0]: {"price": row[1], "stock": row[2], "category": row[3]} for row in cur.fetchall()}
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT name, price, stock, category FROM products")
+    products = {}
+    for name, price, stock, category in c.fetchall():
+        products[name] = {
+            "price": price,
+            "stock": stock,
+            "category": category
+        }
     conn.close()
-    return jsonify(data)
+    return jsonify(products)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
