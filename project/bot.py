@@ -8,69 +8,27 @@ from aiogram.types import Message, WebAppInfo, FSInputFile
 
 TOKEN = os.environ.get("BOT_TOKEN")  # передаем в Render
 WEBAPP_URL = os.environ.get("WEBAPP_URL")  # URL WebApp
+DB_PATH = "products.db"
+
+# ----------------- Создание базы и таблицы -----------------
+conn = sqlite3.connect(DB_PATH)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS products (
+    name TEXT PRIMARY KEY,
+    price REAL,
+    stock INTEGER,
+    category TEXT
+)
+""")
+conn.commit()
+conn.close()
+# ----------------------------------------------------------
 
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# --- DATABASE ---
-DB_FILE = '/home/render/project/products.db'  # SQLite база на Render
-
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            price REAL NOT NULL,
-            stock INTEGER NOT NULL,
-            category TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def get_all_products():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT name, price, stock, category FROM products")
-    products = {row[0]: {"price": row[1], "stock": row[2], "category": row[3]} for row in cur.fetchall()}
-    conn.close()
-    return products
-
-def add_product_to_db(name, price, stock, category):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT OR REPLACE INTO products (name, price, stock, category) VALUES (?, ?, ?, ?)",
-        (name, price, stock, category)
-    )
-    conn.commit()
-    conn.close()
-
-def update_stock(name, amount):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("UPDATE products SET stock = stock + ? WHERE name = ?", (amount, name))
-    conn.commit()
-    conn.close()
-
-def update_price(name, price):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("UPDATE products SET price = ? WHERE name = ?", (price, name))
-    conn.commit()
-    conn.close()
-
-def delete_product(name):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM products WHERE name = ?", (name,))
-    conn.commit()
-    conn.close()
-
-# --- ADMINS ---
 admins = set()
 ADMIN_LOGIN = "admin"
 ADMIN_PASSWORD = "1234"
@@ -87,15 +45,49 @@ class AdminAction(StatesGroup):
 
 # --- UTILS ---
 def admin_panel_kb():
-    products = get_all_products()
     kb = InlineKeyboardBuilder()
-    for name, info in products.items():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT name, price, stock, category FROM products")
+    for name, price, stock, category in c.fetchall():
         kb.button(
-            text=f"{name} (${info['price']}, {info['stock']} шт., Категория: {info['category']})",
+            text=f"{name} (${price}, {stock} шт., Категория: {category})",
             callback_data=f"edit_{name}"
         )
+    conn.close()
     kb.button(text="➕ Добавить новый товар", callback_data="add_new")
     return kb.as_markup()
+
+async def save_product(name, price, stock, category):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+    INSERT OR REPLACE INTO products (name, price, stock, category)
+    VALUES (?, ?, ?, ?)
+    """, (name, price, stock, category))
+    conn.commit()
+    conn.close()
+
+async def update_stock(name, amount):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE products SET stock = stock + ? WHERE name = ?", (amount, name))
+    conn.commit()
+    conn.close()
+
+async def update_price(name, price):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE products SET price = ? WHERE name = ?", (price, name))
+    conn.commit()
+    conn.close()
+
+async def delete_product(name):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM products WHERE name = ?", (name,))
+    conn.commit()
+    conn.close()
 
 # ---------------- START / WEBAPP ----------------
 @dp.message(lambda m: m.text == "/start")
@@ -172,7 +164,7 @@ async def process_restock(message: Message, state: FSMContext):
     item_name = data["item_name"]
     try:
         amount = int(message.text)
-        update_stock(item_name, amount)
+        await update_stock(item_name, amount)
         await message.answer(f"Товар {item_name} пополнен на {amount} шт. ✅", reply_markup=admin_panel_kb())
     except:
         await message.answer("Ошибка! Введите число.")
@@ -191,7 +183,7 @@ async def process_new_price(message: Message, state: FSMContext):
     item_name = data["item_name"]
     try:
         price = float(message.text)
-        update_price(item_name, price)
+        await update_price(item_name, price)
         await message.answer(f"Цена товара {item_name} обновлена на ${price} ✅", reply_markup=admin_panel_kb())
     except:
         await message.answer("Ошибка! Введите число.")
@@ -200,7 +192,7 @@ async def process_new_price(message: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("delete_"))
 async def delete_item_callback(callback_query: types.CallbackQuery):
     item_name = callback_query.data[7:]
-    delete_product(item_name)
+    await delete_product(item_name)
     await callback_query.message.answer(f"Товар {item_name} удален ✅", reply_markup=admin_panel_kb())
 
 @dp.callback_query(lambda c: c.data == "add_new")
@@ -214,7 +206,7 @@ async def add_new_item_callback(callback_query: types.CallbackQuery, state: FSMC
 async def process_new_item(message: Message, state: FSMContext):
     try:
         name, price, stock, category = message.text.split(",")
-        add_product_to_db(name.strip(), float(price.strip()), int(stock.strip()), category.strip())
+        await save_product(name.strip(), float(price.strip()), int(stock.strip()), category.strip())
         await message.answer(
             f"Товар {name.strip()} добавлен ✅ (Категория: {category.strip()})",
             reply_markup=admin_panel_kb()
@@ -225,7 +217,6 @@ async def process_new_item(message: Message, state: FSMContext):
 
 # ---------------- MAIN ----------------
 async def main():
-    init_db()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
