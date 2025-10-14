@@ -1,5 +1,6 @@
 Flask==2.3.3
 aiogram==3.10
-asyncpg==1.25.0
+asyncpg==0.30.0
+
 
 
