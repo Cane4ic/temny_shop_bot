@@ -1,6 +1,0 @@
-Flask==2.3.3
-aiogram==3.10
-asyncpg==0.30.0
-
-
-
