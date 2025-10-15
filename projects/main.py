@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, request
 from threading import Thread
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -40,7 +40,6 @@ def index():
 
 @app.route("/products")
 def get_products():
-    # Flask не умеет напрямую работать с async, поэтому используем asyncio.run
     products = asyncio.run(fetch_products_from_google_sheet())
     return jsonify(products)
 
@@ -116,14 +115,13 @@ async def process_password(message: Message, state: FSMContext):
     if login == ADMIN_LOGIN and password == ADMIN_PASSWORD:
         admins.add(user_id)
         
-        # Создаём кнопки для действий
+        # Кнопки действий
         keyboard = InlineKeyboardMarkup(row_width=2)
         keyboard.add(
             InlineKeyboardButton(text="Редактировать товар", callback_data="edit_product"),
             InlineKeyboardButton(text="Сделать рассылку", callback_data="broadcast")
         )
 
-        # Отправляем приветственное сообщение с кнопками
         await message.answer(
             "✅ Вы авторизованы\n\n"
             "Добро пожаловать в Admin Panel.\n\n"
@@ -138,11 +136,18 @@ async def process_password(message: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "edit_product")
 async def callback_edit_product(callback_query: types.CallbackQuery):
     await callback_query.message.answer(
-        "Вы выбрали: Редактировать товар\n\n"
-        "Введите название товара, который хотите изменить:"
+        "Вы выбрали: Редактировать товар\n\nВведите название товара, который хотите изменить:"
     )
     await AdminAction.waiting_for_edit_name.set()
 
+@dp.callback_query(lambda c: c.data == "broadcast")
+async def callback_broadcast(callback_query: types.CallbackQuery):
+    await callback_query.message.answer(
+        "Вы выбрали: Сделать рассылку\n\nВведите текст сообщения для рассылки:"
+    )
+    await AdminAction.waiting_for_broadcast_message.set()
+
+# --- FSM для редактирования товара ---
 @dp.message(AdminAction.waiting_for_edit_name)
 async def edit_name(message: Message, state: FSMContext):
     temp_edit_data["name"] = message.text
@@ -165,8 +170,7 @@ async def edit_stock(message: Message, state: FSMContext):
 async def edit_category(message: Message, state: FSMContext):
     temp_edit_data["category"] = message.text
 
-    # Здесь логика обновления в Google Sheet через API или CSV
-    # Пока просто подтверждение
+    # TODO: здесь можно обновлять Google Sheets через API
     await message.answer(
         f"Товар <b>{temp_edit_data['name']}</b> обновлён:\n"
         f"Цена: {temp_edit_data['price']}\n"
@@ -177,16 +181,9 @@ async def edit_category(message: Message, state: FSMContext):
     temp_edit_data.clear()
     await state.clear()
 
-@dp.callback_query(lambda c: c.data == "broadcast")
-async def callback_broadcast(callback_query: types.CallbackQuery):
-    await callback_query.message.answer(
-        "Вы выбрали: Сделать рассылку\n\nВведите текст сообщения для рассылки:"
-    )
-    await AdminAction.waiting_for_broadcast_message.set()
-
+# --- FSM для рассылки ---
 @dp.message(AdminAction.waiting_for_broadcast_message)
 async def broadcast_message(message: Message, state: FSMContext):
-    # Здесь должен быть список пользователей, например из Google Sheets или файла
     users = []  # TODO: заменить на список ID пользователей
     text = message.text
     success = 0
@@ -204,9 +201,6 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # Run Flask in a separate thread
     t = Thread(target=run_flask)
     t.start()
-
-    # Run bot in main thread
     asyncio.run(main())
