@@ -16,7 +16,7 @@ from aiogram.filters import Command
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
-GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNY SHOP")
+GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNYSHOP")
 
 # ---------- GOOGLE SHEETS ----------
 def get_google_sheet():
@@ -258,5 +258,6 @@ if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.start()
     asyncio.run(main())
+
 
 
