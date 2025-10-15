@@ -25,12 +25,22 @@ TRIBUTE_API_KEY = os.environ.get("TRIBUTE_API_KEY")
 TRIBUTE_PROJECT_ID = os.environ.get("TRIBUTE_PROJECT_ID")
 
 # ---------- GOOGLE SHEETS ----------
+_google_client = None
+_google_sheet = None
+
 def get_google_client():
+    global _google_client
+    if _google_client:
+        return _google_client
+
     creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_BASE64")
     if not creds_b64:
         raise ValueError("Переменная окружения GOOGLE_CREDENTIALS_BASE64 не задана!")
 
-    creds_json = json.loads(base64.b64decode(creds_b64))
+    try:
+        creds_json = json.loads(base64.b64decode(creds_b64))
+    except Exception as e:
+        raise ValueError(f"Ошибка декодирования GOOGLE_CREDENTIALS_BASE64: {e}")
 
     # создаем временный файл
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".json") as tmp_file:
@@ -42,12 +52,16 @@ def get_google_client():
         "https://www.googleapis.com/auth/drive"
     ]
     creds = Credentials.from_service_account_file(tmp_path, scopes=scopes)
-    client = gspread.authorize(creds)
-    return client
+    _google_client = gspread.authorize(creds)
+    return _google_client
 
 def get_google_sheet():
+    global _google_sheet
+    if _google_sheet:
+        return _google_sheet
     client = get_google_client()
-    return client.open(GOOGLE_SHEET_NAME).sheet1
+    _google_sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+    return _google_sheet
 
 def fetch_products_from_google_sheet():
     try:
