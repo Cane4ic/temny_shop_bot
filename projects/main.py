@@ -1,7 +1,5 @@
 import os
 import json
-import base64
-import tempfile
 from threading import Thread
 import asyncio
 import requests
@@ -19,7 +17,11 @@ from google.oauth2.service_account import Credentials
 
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBAPP_URL = os.environ.get("WEBAPP_URL")
+WEBAPP_URL = os.environ.get("WEBAPP_URL") or (
+    f"https://{os.environ.get('REPLIT_DEV_DOMAIN')}" if os.environ.get('REPLIT_DEV_DOMAIN') else None
+)
+if not WEBAPP_URL:
+    raise ValueError("WEBAPP_URL not set! Please set WEBAPP_URL environment variable or ensure REPLIT_DEV_DOMAIN is available.")
 GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNYSHOP")
 TRIBUTE_API_KEY = os.environ.get("TRIBUTE_API_KEY")
 TRIBUTE_PROJECT_ID = os.environ.get("TRIBUTE_PROJECT_ID")
@@ -33,25 +35,13 @@ def get_google_client():
     if _google_client:
         return _google_client
 
-    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_BASE64")
-    if not creds_b64:
-        raise ValueError("Переменная окружения GOOGLE_CREDENTIALS_BASE64 не задана!")
-
-    try:
-        creds_json = json.loads(base64.b64decode(creds_b64))
-    except Exception as e:
-        raise ValueError(f"Ошибка декодирования GOOGLE_CREDENTIALS_BASE64: {e}")
-
-    # создаем временный файл
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".json") as tmp_file:
-        json.dump(creds_json, tmp_file)
-        tmp_path = tmp_file.name
-
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = Credentials.from_service_account_file(tmp_path, scopes=scopes)
+
+    # используем файл напрямую
+    creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
     _google_client = gspread.authorize(creds)
     return _google_client
 
@@ -122,6 +112,7 @@ def update_user_balance(user_id, new_balance):
 
 # ---------- FLASK ----------
 app = Flask(__name__)
+bot_loop = None
 
 @app.route("/")
 def index():
@@ -150,9 +141,20 @@ def buy_product():
     if not all([user_id, product_name]):
         return jsonify({"status": "error", "error": "Missing fields"}), 400
 
+    if not (bot_loop and bot_loop.is_running()):
+        print("Bot loop not available, cannot process purchase")
+        return jsonify({"status": "error", "error": "Bot not ready"}), 503
+
     current_balance = get_user_balance(user_id)
     if current_balance < price:
         return jsonify({"status": "error", "error": "Недостаточно средств"}), 400
+
+    future = asyncio.run_coroutine_threadsafe(send_product(int(user_id), product_name), bot_loop)
+    try:
+        future.result(timeout=5)
+    except Exception as e:
+        print(f"Error sending product notification: {e}")
+        return jsonify({"status": "error", "error": "Failed to send notification"}), 500
 
     update_user_balance(user_id, current_balance - price)
 
@@ -164,7 +166,6 @@ def buy_product():
             sheet.update_cell(idx, 3, max(stock - 1, 0))
             break
 
-    asyncio.create_task(send_product(int(user_id), product_name))
     return jsonify({"status": "ok"})
 
 @app.route("/tribute_webhook", methods=["POST"])
@@ -177,7 +178,16 @@ def tribute_webhook():
         user_id = int(metadata.get("telegram_user_id", 0))
         product_name = metadata.get("product_name")
         if user_id and product_name:
-            asyncio.create_task(send_product(user_id, product_name))
+            if bot_loop and bot_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(send_product(user_id, product_name), bot_loop)
+                try:
+                    future.result(timeout=5)
+                except Exception as e:
+                    print(f"Error sending product notification via webhook: {e}")
+                    return {"status": "error", "error": "Failed to send notification"}, 500
+            else:
+                print("Bot loop not available for webhook notification")
+                return {"status": "error", "error": "Bot not ready"}, 503
             try:
                 sheet = get_google_sheet()
                 all_rows = sheet.get_all_records()
@@ -189,6 +199,7 @@ def tribute_webhook():
                         break
             except Exception as e:
                 print("Ошибка обновления Stock:", e)
+                return {"status": "error", "error": "Failed to update stock"}, 500
 
     return {"status": "ok"}, 200
 
@@ -298,134 +309,24 @@ async def start(message: Message):
         parse_mode="HTML"
     )
 
-# ---------- Admin handlers ----------
-@dp.message(lambda m: m.text == "/admin")
-async def admin_command(message: Message, state: FSMContext):
-    await message.answer("Введите логин администратора:")
-    await state.set_state(AdminLogin.waiting_for_login)
-
-@dp.message(AdminLogin.waiting_for_login)
-async def process_login(message: Message, state: FSMContext):
-    await state.update_data(login=message.text)
-    await message.answer("Введите пароль:")
-    await state.set_state(AdminLogin.waiting_for_password)
-
-@dp.message(AdminLogin.waiting_for_password)
-async def process_password(message: Message, state: FSMContext):
-    data = await state.get_data()
-    login = data["login"]
-    password = message.text
-    user_id = message.from_user.id
-
-    if login == ADMIN_LOGIN and password == ADMIN_PASSWORD:
-        admins.add(user_id)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Редактировать товар", callback_data="edit_product")],
-            [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="send_broadcast")]
-        ])
-        await message.answer(
-            "👑 <b>Добро пожаловать в Admin Panel</b>\n\n"
-            "Пожалуйста, выберите действие, которое хотите сделать ниже:",
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-    else:
-        await message.answer("Неверный логин или пароль ❌")
-    await state.clear()
-
-@dp.message(Command("check_sheets"))
-@admin_only
-async def check_sheets(message: types.Message, state: FSMContext):
-    try:
-        sheet = get_google_sheet()
-        values = sheet.row_values(1)
-        if values:
-            await message.answer(f"✅ Доступ к Google Sheets есть!\nПервая строка:\n<code>{', '.join(values)}</code>", parse_mode="HTML")
-        else:
-            await message.answer("✅ Доступ к Google Sheets есть, но таблица пуста.")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка доступа к Google Sheets:\n<code>{e}</code>", parse_mode="HTML")
-
-# ---------- Callback: редактирование ----------
-@dp.callback_query(lambda c: c.data == "edit_product")
-@admin_only
-async def start_edit_product(callback: CallbackQuery, state: FSMContext):
-    products = fetch_products_from_google_sheet()
-    keyboard = InlineKeyboardBuilder()
-    for name in products.keys():
-        keyboard.button(text=name, callback_data=f"choose_product:{name}")
-    keyboard.adjust(2)
-    await callback.message.answer("Выберите товар для редактирования:", reply_markup=keyboard.as_markup())
-    await state.set_state(EditProduct.waiting_for_product_choice)
-
-@dp.callback_query(lambda c: c.data.startswith("choose_product:"))
-@admin_only
-async def choose_product(callback: CallbackQuery, state: FSMContext):
-    product_name = callback.data.split(":", 1)[1]
-    await state.update_data(product_name=product_name)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Название", callback_data="edit_field:Name")],
-        [InlineKeyboardButton(text="💵 Цена", callback_data="edit_field:Price")],
-        [InlineKeyboardButton(text="📦 Количество", callback_data="edit_field:Stock")],
-        [InlineKeyboardButton(text="🏷 Категория", callback_data="edit_field:Category")]
-    ])
-    await callback.message.answer(f"Что хотите изменить в <b>{product_name}</b>?", parse_mode="HTML", reply_markup=keyboard)
-    await state.set_state(EditProduct.waiting_for_field_choice)
-
-@dp.callback_query(lambda c: c.data.startswith("edit_field:"))
-@admin_only
-async def choose_field(callback: CallbackQuery, state: FSMContext):
-    field = callback.data.split(":", 1)[1]
-    await state.update_data(field=field)
-    await callback.message.answer(f"Введите новое значение для поля <b>{field}</b>:", parse_mode="HTML")
-    await state.set_state(EditProduct.waiting_for_new_value)
-
-@dp.message(EditProduct.waiting_for_new_value)
-@admin_only
-async def set_new_value(message: Message, state: FSMContext):
-    data = await state.get_data()
-    product_name = data["product_name"]
-    field = data["field"]
-    new_value = message.text
-    update_product_in_sheet(product_name, field, new_value)
-    await message.answer(f"✅ Поле <b>{field}</b> товара <b>{product_name}</b> успешно обновлено!", parse_mode="HTML")
-    await state.clear()
-
-# ---------- Callback: рассылка ----------
-@dp.callback_query(lambda c: c.data == "send_broadcast")
-@admin_only
-async def start_broadcast(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите текст рассылки:")
-    await state.set_state(Broadcast.waiting_for_text)
-
-@dp.message(Broadcast.waiting_for_text)
-@admin_only
-async def send_broadcast(message: Message, state: FSMContext):
-    text = message.text
-    try:
-        sheet = get_google_client().open(GOOGLE_SHEET_NAME).worksheet("Users")
-        users = sheet.get_all_records()
-        count = 0
-        for user in users:
-            try:
-                await bot.send_message(user["UserID"], text)
-                count += 1
-            except:
-                pass
-        await message.answer(f"📢 Рассылка завершена!\n✅ Успешно отправлено {count} сообщений.")
-    except Exception as e:
-        await message.answer(f"Ошибка при рассылке: {e}")
-    await state.clear()
-
 # ---------- Отправка товара ----------
 async def send_product(user_id: int, product_name: str):
     try:
         await bot.send_message(user_id, f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.", parse_mode="HTML")
     except Exception as e:
-        print("Ошибка при отправке товара:", e)
+        print(f"Ошибка при отправке товара: {e}")
+        raise  # Re-raise so caller can handle
 
 # ---------- MAIN ----------
-if __name__ == "__main__":
+async def main():
+    global bot_loop
+    bot_loop = asyncio.get_running_loop()
+
+    # Start Flask in a separate thread
     t = Thread(target=run_flask, daemon=True)
     t.start()
-    asyncio.run(dp.start_polling(bot))
+
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
