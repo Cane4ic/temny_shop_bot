@@ -20,7 +20,13 @@ GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNY SHOP")
 # ---------- GOOGLE SHEETS ----------
 def get_google_sheet():
     creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
-    creds = Credentials.from_service_account_info(creds_json)
+    
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
     client = gspread.authorize(creds)
     return client.open(GOOGLE_SHEET_NAME).sheet1
 
@@ -159,6 +165,18 @@ async def process_password(message: Message, state: FSMContext):
         await message.answer("Неверный логин или пароль ❌")
     await state.clear()
 
+@dp.message(Command("check_sheets"))
+async def check_sheets(message: types.Message):
+    try:
+        sheet = get_google_sheet()
+        values = sheet.row_values(1)
+        if values:
+            await message.answer(f"✅ Доступ к Google Sheets есть!\nПервая строка:\n<code>{', '.join(values)}</code>", parse_mode="HTML")
+        else:
+            await message.answer("✅ Доступ к Google Sheets есть, но таблица пуста.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка доступа к Google Sheets:\n<code>{e}</code>", parse_mode="HTML")
+
 # ---------- CALLBACK: РЕДАКТИРОВАНИЕ ----------
 @dp.callback_query(lambda c: c.data == "edit_product")
 async def start_edit_product(callback: CallbackQuery, state: FSMContext):
@@ -239,3 +257,4 @@ if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.start()
     asyncio.run(main())
+
