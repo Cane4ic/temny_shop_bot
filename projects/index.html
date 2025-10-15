@@ -61,6 +61,12 @@
     text-transform:uppercase;
     letter-spacing:2px;
   }
+  .balance{
+    margin-top:8px;
+    font-size:16px;
+    color:#ffb0d6;
+    font-weight:600;
+  }
 
   .menu {
     padding: 18px 12px;
@@ -162,6 +168,7 @@
       <div class="header">
         <h1 class="title">TEMNY SHOP</h1>
         <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
+        <div class="balance" id="userBalance">Баланс: $0</div>
       </div>
       <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
       <div class="spacer"></div>
@@ -181,7 +188,24 @@
 
 <script>
 let CATALOG = {}; 
+let USER_BALANCE = 0;
 
+// Загружаем баланс пользователя
+async function loadBalance(){
+  const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
+  try {
+    const res = await fetch(`/get_balance?user_id=${user_id}`);
+    const data = await res.json();
+    if(data.balance !== undefined){
+      USER_BALANCE = parseFloat(data.balance) || 0;
+      document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+    }
+  } catch(e){
+    console.error("Ошибка загрузки баланса:", e);
+  }
+}
+
+// Загрузка каталога товаров
 async function loadCatalog() {
   try {
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTd1pxKHn8UJRhbAAFBGnv-tWUIswz8b6cK6_TkwSSGym7uz9iIHmcotCfKMG3e1Q9s-kvXO3kYK7BK/pub?output=csv";
@@ -213,6 +237,7 @@ async function loadCatalog() {
   }
 }
 
+// Отображаем категории
 function renderCategories(){
   const menu = document.getElementById('menuCategories');
   menu.innerHTML = '';
@@ -230,6 +255,7 @@ function renderCategories(){
   }
 }
 
+// Открываем категорию
 function openCategory(key){
   const cat = CATALOG[key];
   if(!cat) return;
@@ -258,16 +284,22 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
+// Покупка товара
 async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
   if(!item) return alert('Товар не найден');
 
   const priceNumber = parseFloat(item.price.replace('$','')) || 0;
+
+  if(priceNumber > USER_BALANCE){
+    return alert('❌ Недостаточно средств на балансе');
+  }
+
   const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
 
   try {
-    const res = await fetch('/create_payment', {
+    const res = await fetch('/buy_product', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -277,17 +309,20 @@ async function buy(id, cat){
       })
     });
     const data = await res.json();
-    if(data.payment_url){
-      window.open(data.payment_url, '_blank');
+    if(data.status === 'ok'){
+      USER_BALANCE -= priceNumber;
+      document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+      alert(`✅ Товар "${item.name}" успешно куплен!`);
     } else {
-      alert('Ошибка при создании платежа');
+      alert(`❌ ${data.error}`);
     }
   } catch(e) {
     console.error(e);
-    alert('Ошибка при создании платежа');
+    alert('Ошибка при покупке');
   }
 }
 
+// Показываем нужный вид
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>{
     v.style.display = (v.getAttribute('data-view')===name) ? 'flex' : 'none';
@@ -295,8 +330,10 @@ function showView(name){
   try{ if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.ready) window.Telegram.WebApp.MainButton.hide(); }catch(e){}
 }
 
+// Инициализация
 async function initWebApp(){
   await loadCatalog();
+  await loadBalance();
   renderCategories();
   showView('menu');
 }
