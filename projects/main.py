@@ -1,7 +1,7 @@
 import os
 import json
 import base64
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, request
 from threading import Thread
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -55,7 +55,7 @@ def update_product_in_sheet(product_name, field, new_value):
     try:
         sheet = get_google_sheet()
         data = sheet.get_all_records()
-        for idx, row in enumerate(data, start=2):  # строка 2 — после заголовков
+        for idx, row in enumerate(data, start=2):
             if row.get("Name") == product_name:
                 col_map = {"Name": 1, "Price": 2, "Stock": 3, "Category": 4}
                 if field in col_map:
@@ -75,6 +75,33 @@ def index():
 def get_products():
     products = fetch_products_from_google_sheet()
     return jsonify(products)
+
+# ---------- Tribute webhook ----------
+@app.route("/tribute_webhook", methods=["POST"])
+def tribute_webhook():
+    data = request.json
+    print("Webhook received:", data)
+
+    if data.get("status") == "paid":
+        metadata = data.get("metadata", {})
+        user_id = int(metadata.get("telegram_user_id", 0))
+        product_name = metadata.get("product_name")
+        if user_id and product_name:
+            asyncio.create_task(send_product(user_id, product_name))
+            # Уменьшаем stock
+            try:
+                sheet = get_google_sheet()
+                all_rows = sheet.get_all_records()
+                for idx, row in enumerate(all_rows, start=2):
+                    if row.get("Name") == product_name:
+                        stock = int(row.get("Stock", 0))
+                        if stock > 0:
+                            sheet.update_cell(idx, 3, stock - 1)
+                        break
+            except Exception as e:
+                print("Ошибка обновления Stock:", e)
+
+    return {"status": "ok"}, 200
 
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
@@ -110,10 +137,9 @@ class EditProduct(StatesGroup):
 class Broadcast(StatesGroup):
     waiting_for_text = State()
 
-# --- BOT HANDLERS ---
+# ---------- BOT HANDLERS ----------
 @dp.message(lambda m: m.text == "/start")
 async def start(message: Message):
-    # сохраняем пользователя в Google Sheets
     try:
         sheet = get_google_sheet().parent
         try:
@@ -149,6 +175,7 @@ async def start(message: Message):
         parse_mode="HTML"
     )
 
+# ---------- Admin and edit handlers (без изменений) ----------
 @dp.message(lambda m: m.text == "/admin")
 async def admin_command(message: Message, state: FSMContext):
     await message.answer("Введите логин администратора:")
@@ -181,7 +208,6 @@ async def process_password(message: Message, state: FSMContext):
         )
     else:
         await message.answer("Неверный логин или пароль ❌")
-
     await state.clear()
 
 @dp.message(Command("check_sheets"))
@@ -267,6 +293,13 @@ async def send_broadcast(message: Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"Ошибка при рассылке: {e}")
     await state.clear()
+
+# ---------- Отправка товара ----------
+async def send_product(user_id: int, product_name: str):
+    try:
+        await bot.send_message(user_id, f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.", parse_mode="HTML")
+    except Exception as e:
+        print("Ошибка при отправке товара:", e)
 
 # ---------- MAIN ----------
 async def main():
