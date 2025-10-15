@@ -6,193 +6,76 @@
 <title>TEMNY SHOP — WebApp</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#000;
-    --panel:#0b0b0b;
-    --glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);
-    --accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);
-    --text:#ffffff;
-    --muted: rgba(255,255,255,0.55);
-    --btn-inner: rgba(255,255,255,0.03);
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--text);
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    -webkit-font-smoothing:antialiased;
-    -moz-osx-font-smoothing:grayscale;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding:12px;
-  }
-
-  .app{
-    width:100%;
-    max-width:420px;
-    height:100vh;
-    display:flex;
-    flex-direction:column;
-    gap:14px;
-    align-items:stretch;
-  }
-
-  .header{
-    text-align:center;
-    margin-top:6vh;
-  }
-  .title{
-    font-family: "Cinzel Decorative", serif;
-    font-size:38px;
-    letter-spacing:2px;
-    color:#fff;
-    text-shadow: 0 2px 0 rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.7);
-    margin:0;
-  }
-  .subtitle{
-    margin-top:10px;
-    font-size:16px;
-    line-height:1.25;
-    color:var(--muted);
-    font-weight:300;
-    text-transform:uppercase;
-    letter-spacing:2px;
-  }
-  .balance{
-    margin-top:8px;
-    font-size:16px;
-    color:#ffb0d6;
-    font-weight:600;
-  }
-
-  .menu {
-    padding: 18px 12px;
-    display:flex;
-    flex-direction:column;
-    gap:18px;
-    align-items:stretch;
-    flex:0 0 auto;
-  }
-
-  .big-btn{
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.35));
-    border-radius:18px;
-    padding:14px 14px;
-    display:flex;
-    align-items:center;
-    gap:14px;
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.7), 0 6px 20px rgba(0,0,0,0.6);
-    border: 1px solid rgba(255,255,255,0.04);
-    cursor:pointer;
-    transition: transform .14s ease, box-shadow .14s ease;
-    position:relative;
-    overflow:hidden;
-  }
-  .big-btn:before{
-    content:"";
-    position:absolute;
-    inset:-6px;
-    border-radius:22px;
-    box-shadow: 0 0 30px rgba(255,255,255,0.06);
-    pointer-events:none;
-    opacity:0.9;
-    mix-blend-mode:screen;
-  }
+  /* стили остаются как в твоем коде */
+  :root{--bg:#000;--panel:#0b0b0b;--glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);--accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);--text:#ffffff;--muted: rgba(255,255,255,0.55);--btn-inner: rgba(255,255,255,0.03);}
+  *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--text);font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;display:flex;align-items:center;justify-content:center;padding:12px;}
+  .app{width:100%;max-width:420px;height:100vh;display:flex;flex-direction:column;gap:14px;align-items:stretch;}
+  .header{text-align:center;margin-top:6vh;}
+  .title{font-family: "Cinzel Decorative", serif;font-size:38px;letter-spacing:2px;color:#fff;text-shadow: 0 2px 0 rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.7);margin:0;}
+  .subtitle{margin-top:10px;font-size:16px;line-height:1.25;color:var(--muted);font-weight:300;text-transform:uppercase;letter-spacing:2px;}
+  .balance{margin-top:8px;font-size:16px;color:#ffb0d6;font-weight:600;}
+  .menu{padding: 18px 12px;display:flex;flex-direction:column;gap:18px;align-items:stretch;flex:0 0 auto;}
+  .big-btn{background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.35));border-radius:18px;padding:14px 14px;display:flex;align-items:center;gap:14px;box-shadow: 0 0 0 3px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.7), 0 6px 20px rgba(0,0,0,0.6);border: 1px solid rgba(255,255,255,0.04);cursor:pointer;transition: transform .14s ease, box-shadow .14s ease;position:relative;overflow:hidden;}
+  .big-btn:before{content:"";position:absolute;inset:-6px;border-radius:22px;box-shadow: 0 0 30px rgba(255,255,255,0.06);pointer-events:none;opacity:0.9;mix-blend-mode:screen;}
   .big-btn:hover{ transform:translateY(-4px); box-shadow: 0 28px 60px rgba(0,0,0,0.8); }
-
-  .icon-wrap{
-    width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#0f0f10,#19191c);display:flex;align-items:center;justify-content:center;font-size:28px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
-  }
-  .btn-label{
-    flex:1;
-    font-weight:700;
-    font-size:20px;
-    letter-spacing:1px;
-    color:#fff;
-    text-shadow: 0 1px 0 rgba(0,0,0,0.6);
-  }
-  .chev{
-    width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:18px;
-  }
-
-  .view{
-    flex:1 1 auto;
-    overflow:hidden;
-    display:flex;
-    flex-direction:column;
-  }
-  .list-wrap{
-    flex:1 1 auto;
-    overflow:auto;
-    padding:0 12px 24px;
-  }
-
-  .backbar{
-    display:flex;align-items:center;gap:12px;padding:12px 6px;
-  }
-  .backbtn{
-    width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.03);display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.03);
-    cursor:pointer;
-  }
+  .icon-wrap{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#0f0f10,#19191c);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);}
+  .btn-label{flex:1;font-weight:700;font-size:20px;letter-spacing:1px;color:#fff;text-shadow: 0 1px 0 rgba(0,0,0,0.6);}
+  .chev{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:18px;}
+  .view{flex:1 1 auto;overflow:hidden;display:flex;flex-direction:column;}
+  .list-wrap{flex:1 1 auto;overflow:auto;padding:0 12px 24px;}
+  .backbar{display:flex;align-items:center;gap:12px;padding:12px 6px;}
+  .backbtn{width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.03);display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.03);cursor:pointer;}
   .page-title{font-size:18px;font-weight:700}
-
   .products{display:flex;flex-direction:column;gap:12px;margin-top:8px}
-  .product{
-    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.4));
-    border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center;border:1px solid rgba(255,255,255,0.04);
-    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
-  }
+  .product{background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.4));border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center;border:1px solid rgba(255,255,255,0.04);box-shadow: 0 12px 30px rgba(0,0,0,0.6);}
   .product .picon{width:56px;height:56px;border-radius:10px;background:#090909;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px}
   .product .pmeta{flex:1}
   .pmeta .name{font-size:16px;font-weight:700}
   .pmeta .desc{font-size:12px;color:var(--muted);margin-top:6px}
   .pmeta .price{font-size:14px;font-weight:700;color:#fff;margin-top:6px}
-
   .spacer{height:8vh;flex:0 0 auto}
-
-  @media (max-width:380px){
-    .title{font-size:34px}
-    .big-btn{padding:12px}
-    .icon-wrap{width:48px;height:48px}
-    .btn-label{font-size:18px}
-  }
+  @media (max-width:380px){.title{font-size:34px}.big-btn{padding:12px}.icon-wrap{width:48px;height:48px}.btn-label{font-size:18px}}
 </style>
 </head>
 <body>
-  <div class="app" id="app">
-    <div class="view" data-view="menu">
-      <div class="header">
-        <h1 class="title">TEMNY SHOP</h1>
-        <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
-        <div class="balance" id="userBalance">Баланс: $0</div>
-      </div>
-      <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
-      <div class="spacer"></div>
+<div class="app" id="app">
+  <div class="view" data-view="menu">
+    <div class="header">
+      <h1 class="title">TEMNY SHOP</h1>
+      <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
+      <div class="balance" id="userBalance">Баланс: $0</div>
     </div>
-
-    <div class="view" data-view="products" style="display:none">
-      <div class="backbar">
-        <div class="backbtn" onclick="goBack()" aria-label="Назад">←</div>
-        <div class="page-title" id="catTitle">Категория</div>
-      </div>
-      <div class="list-wrap">
-        <div class="products" id="productsList"></div>
-      </div>
-      <div style="height:6vh"></div>
-    </div>
+    <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
+    <div class="spacer"></div>
   </div>
+
+  <div class="view" data-view="products" style="display:none">
+    <div class="backbar">
+      <div class="backbtn" onclick="goBack()" aria-label="Назад">←</div>
+      <div class="page-title" id="catTitle">Категория</div>
+    </div>
+    <div class="list-wrap">
+      <div class="products" id="productsList"></div>
+    </div>
+    <div style="height:6vh"></div>
+  </div>
+</div>
 
 <script>
 let CATALOG = {}; 
 let USER_BALANCE = 0;
 
-// Загружаем баланс пользователя
+// Загружаем баланс пользователя безопасно
 async function loadBalance(){
-  const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
+  let user_id;
+  try{
+    user_id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    if(!user_id) throw new Error("Пользователь не определён");
+  } catch(e){
+    console.warn("Telegram WebApp не готов:", e);
+    return;
+  }
+
   try {
     const res = await fetch(`/get_balance?user_id=${user_id}`);
     const data = await res.json();
@@ -296,7 +179,8 @@ async function buy(id, cat){
     return alert('❌ Недостаточно средств на балансе');
   }
 
-  const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
+  let user_id;
+  try{ user_id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id; }catch(e){return alert('Не удалось получить пользователя');}
 
   try {
     const res = await fetch('/buy_product', {
@@ -327,14 +211,14 @@ function showView(name){
   document.querySelectorAll('.view').forEach(v=>{
     v.style.display = (v.getAttribute('data-view')===name) ? 'flex' : 'none';
   });
-  try{ if(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.ready) window.Telegram.WebApp.MainButton.hide(); }catch(e){}
+  try{ window.Telegram?.WebApp?.MainButton?.hide(); }catch(e){}
 }
 
 // Инициализация
 async function initWebApp(){
   await loadCatalog();
-  await loadBalance();
-  renderCategories();
+  renderCategories(); // сразу рендерим категории
+  await loadBalance(); // баланс грузим асинхронно
   showView('menu');
 }
 
@@ -343,7 +227,7 @@ initWebApp();
 try{
   if(window.Telegram && window.Telegram.WebApp){
     window.Telegram.WebApp.ready();
-    if(window.Telegram.WebApp.expand) window.Telegram.WebApp.expand();
+    window.Telegram.WebApp.expand?.();
   }
 }catch(e){}
 </script>
