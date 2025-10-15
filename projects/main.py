@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from flask import Flask, jsonify, send_file
 from threading import Thread
 from aiogram import Bot, Dispatcher, types
@@ -20,11 +21,11 @@ GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNYSHOP")
 
 # ---------- GOOGLE SHEETS ----------
 def get_google_sheet():
-    creds_str = os.environ.get("GOOGLE_CREDENTIALS")
-    if not creds_str:
-        raise ValueError("Переменная окружения GOOGLE_CREDENTIALS не задана!")
+    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_BASE64")
+    if not creds_b64:
+        raise ValueError("Переменная окружения GOOGLE_CREDENTIALS_BASE64 не задана!")
 
-    creds_json = json.loads(creds_str.replace("\\n", "\n"))
+    creds_json = json.loads(base64.b64decode(creds_b64))
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -114,16 +115,7 @@ class Broadcast(StatesGroup):
 async def start(message: Message):
     # сохраняем пользователя в Google Sheets
     try:
-        creds_str = os.environ.get("GOOGLE_CREDENTIALS")
-        creds_json = json.loads(creds_str.replace("\\n", "\n"))
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open(GOOGLE_SHEET_NAME)
-
+        sheet = get_google_sheet().parent
         try:
             users_sheet = sheet.worksheet("Users")
         except gspread.WorksheetNotFound:
@@ -262,15 +254,7 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext):
 async def send_broadcast(message: Message, state: FSMContext):
     text = message.text
     try:
-        creds_str = os.environ.get("GOOGLE_CREDENTIALS")
-        creds_json = json.loads(creds_str.replace("\\n", "\n"))
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open(GOOGLE_SHEET_NAME).worksheet("Users")
+        sheet = get_google_sheet().parent.worksheet("Users")
         users = sheet.get_all_records()
         count = 0
         for user in users:
