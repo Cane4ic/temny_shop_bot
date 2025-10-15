@@ -1,23 +1,27 @@
 import os
 import json
 import base64
-from flask import Flask, jsonify, send_file, request
 from threading import Thread
+import asyncio
+import requests
+
+from flask import Flask, jsonify, send_file, request
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, WebAppInfo, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-import asyncio
+from aiogram.filters import Command
 import gspread
 from google.oauth2.service_account import Credentials
-from aiogram.filters import Command
 
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
 GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNYSHOP")
+TRIBUTE_API_KEY = os.environ.get("TRIBUTE_API_KEY")
+TRIBUTE_PROJECT_ID = os.environ.get("TRIBUTE_PROJECT_ID")
 
 # ---------- GOOGLE SHEETS ----------
 def get_google_sheet():
@@ -76,7 +80,6 @@ def get_products():
     products = fetch_products_from_google_sheet()
     return jsonify(products)
 
-# ---------- Tribute webhook ----------
 @app.route("/tribute_webhook", methods=["POST"])
 def tribute_webhook():
     data = request.json
@@ -103,6 +106,42 @@ def tribute_webhook():
 
     return {"status": "ok"}, 200
 
+@app.route("/create_payment", methods=["POST"])
+def create_payment():
+    data = request.json
+    product_name = data.get("product_name")
+    price = data.get("price")
+    telegram_user_id = data.get("telegram_user_id")
+
+    if not (product_name and price and telegram_user_id):
+        return jsonify({"error": "Missing fields"}), 400
+
+    headers = {
+        "Authorization": f"Bearer {TRIBUTE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "amount": int(float(price) * 100),  # в центах
+        "currency": "USD",
+        "metadata": {
+            "telegram_user_id": telegram_user_id,
+            "product_name": product_name
+        },
+        "project_id": TRIBUTE_PROJECT_ID
+    }
+
+    try:
+        resp = requests.post("https://api.tribute.io/v1/payments", json=payload, headers=headers)
+        resp_data = resp.json()
+        payment_url = resp_data.get("url")
+        if not payment_url:
+            return jsonify({"error": "Failed to create payment"}), 500
+        return jsonify({"payment_url": payment_url})
+    except Exception as e:
+        print("Ошибка создания платежа:", e)
+        return jsonify({"error": str(e)}), 500
+
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
@@ -115,7 +154,6 @@ admins = set()
 ADMIN_LOGIN = "admin"
 ADMIN_PASSWORD = "1234"
 
-# ---------- ADMIN DECORATOR ----------
 def admin_only(func):
     async def wrapper(message: Message, state: FSMContext):
         if message.from_user.id not in admins:
@@ -124,7 +162,6 @@ def admin_only(func):
         return await func(message, state)
     return wrapper
 
-# --- FSM States ---
 class AdminLogin(StatesGroup):
     waiting_for_login = State()
     waiting_for_password = State()
@@ -175,7 +212,7 @@ async def start(message: Message):
         parse_mode="HTML"
     )
 
-# ---------- Admin and edit handlers (без изменений) ----------
+# ---------- Admin handlers ----------
 @dp.message(lambda m: m.text == "/admin")
 async def admin_command(message: Message, state: FSMContext):
     await message.answer("Введите логин администратора:")
@@ -223,7 +260,7 @@ async def check_sheets(message: types.Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"❌ Ошибка доступа к Google Sheets:\n<code>{e}</code>", parse_mode="HTML")
 
-# ---------- CALLBACK: РЕДАКТИРОВАНИЕ ----------
+# ---------- Callback: редактирование ----------
 @dp.callback_query(lambda c: c.data == "edit_product")
 @admin_only
 async def start_edit_product(callback: CallbackQuery, state: FSMContext):
@@ -268,7 +305,7 @@ async def set_new_value(message: Message, state: FSMContext):
     await message.answer(f"✅ Поле <b>{field}</b> товара <b>{product_name}</b> успешно обновлено!", parse_mode="HTML")
     await state.clear()
 
-# ---------- CALLBACK: РАССЫЛКА ----------
+# ---------- Callback: рассылка ----------
 @dp.callback_query(lambda c: c.data == "send_broadcast")
 @admin_only
 async def start_broadcast(callback: CallbackQuery, state: FSMContext):
@@ -302,10 +339,7 @@ async def send_product(user_id: int, product_name: str):
         print("Ошибка при отправке товара:", e)
 
 # ---------- MAIN ----------
-async def main():
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
-    t = Thread(target=run_flask)
+    t = Thread(target=run_flask, daemon=True)
     t.start()
-    asyncio.run(main())
+    asyncio.run(dp.start_polling(bot))
