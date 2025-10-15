@@ -163,9 +163,7 @@
         <h1 class="title">TEMNY SHOP</h1>
         <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
       </div>
-      <div class="menu" id="menuCategories" role="navigation" aria-label="Категории">
-        <!-- категории будут добавляться сюда динамически -->
-      </div>
+      <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
       <div class="spacer"></div>
     </div>
 
@@ -182,7 +180,7 @@
   </div>
 
 <script>
-let CATALOG = {}; // категории и товары
+let CATALOG = {}; 
 
 async function loadCatalog() {
   try {
@@ -260,38 +258,34 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
-function buy(id, cat){
+async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
   if(!item) return alert('Товар не найден');
 
   const priceNumber = parseFloat(item.price.replace('$','')) || 0;
   const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
-  const tributeUrl = "https://t.tribute.io/pay"; // Вставьте ссылку вашего Tribute проекта
 
-  const payload = {
-    amount: priceNumber,
-    currency: "USD",
-    metadata: {
-      telegram_user_id: user_id,
-      product_name: item.name
+  try {
+    const res = await fetch('/create_payment', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        product_name: item.name,
+        price: priceNumber,
+        telegram_user_id: user_id
+      })
+    });
+    const data = await res.json();
+    if(data.payment_url){
+      window.open(data.payment_url, '_blank');
+    } else {
+      alert('Ошибка при создании платежа');
     }
-  };
-
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = tributeUrl;
-  form.target = '_blank';
-
-  const input = document.createElement('input');
-  input.type = 'hidden';
-  input.name = 'data';
-  input.value = JSON.stringify(payload);
-  form.appendChild(input);
-
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
+  } catch(e) {
+    console.error(e);
+    alert('Ошибка при создании платежа');
+  }
 }
 
 function showView(name){
