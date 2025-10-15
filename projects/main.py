@@ -87,7 +87,7 @@ class Broadcast(StatesGroup):
 # --- BOT HANDLERS ---
 @dp.message(lambda m: m.text == "/start")
 async def start(message: Message):
-    # сохраняем пользователя в Google Sheets (если нужно)
+    # сохраняем пользователя в Google Sheets
     try:
         creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
         creds = Credentials.from_service_account_info(creds_json)
@@ -176,10 +176,10 @@ async def choose_product(callback: CallbackQuery, state: FSMContext):
     await state.update_data(product_name=product_name)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Название", callback_data="edit_field:Name")],
         [InlineKeyboardButton(text="💵 Цена", callback_data="edit_field:Price")],
         [InlineKeyboardButton(text="📦 Количество", callback_data="edit_field:Stock")],
-        [InlineKeyboardButton(text="🏷 Категория", callback_data="edit_field:Category")],
-        [InlineKeyboardButton(text="📝 Название", callback_data="edit_field:Name")]
+        [InlineKeyboardButton(text="🏷 Категория", callback_data="edit_field:Category")]
     ])
     await callback.message.answer(f"Что хотите изменить в <b>{product_name}</b>?", parse_mode="HTML", reply_markup=keyboard)
     await state.set_state(EditProduct.waiting_for_field_choice)
