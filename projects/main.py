@@ -28,6 +28,7 @@ def get_google_sheet():
     ]
     
     creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
+    creds_info = json.loads(creds_json)
     client = gspread.authorize(creds)
     return client.open(GOOGLE_SHEET_NAME).sheet1
 
@@ -258,6 +259,7 @@ if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.start()
     asyncio.run(main())
+
 
 
 
