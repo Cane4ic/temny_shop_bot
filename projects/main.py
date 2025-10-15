@@ -68,6 +68,33 @@ def update_product_in_sheet(product_name, field, new_value):
     except Exception as e:
         print(f"Ошибка обновления {field} для {product_name}: {e}")
 
+# ---------- USERS / BALANCE ----------
+def get_users_sheet():
+    sheet = get_google_sheet().parent
+    try:
+        return sheet.worksheet("Users")
+    except gspread.WorksheetNotFound:
+        users_sheet = sheet.add_worksheet(title="Users", rows="1000", cols="3")
+        users_sheet.append_row(["UserID", "Username", "Balance"])
+        return users_sheet
+
+def get_user_balance(user_id):
+    sheet = get_users_sheet()
+    rows = sheet.get_all_records()
+    for idx, row in enumerate(rows, start=2):
+        if str(row.get("UserID")) == str(user_id):
+            return float(row.get("Balance", 0))
+    sheet.append_row([user_id, "", 0])
+    return 0
+
+def update_user_balance(user_id, new_balance):
+    sheet = get_users_sheet()
+    rows = sheet.get_all_records()
+    for idx, row in enumerate(rows, start=2):
+        if str(row.get("UserID")) == str(user_id):
+            sheet.update_cell(idx, 3, new_balance)
+            break
+
 # ---------- FLASK ----------
 app = Flask(__name__)
 
@@ -80,6 +107,44 @@ def get_products():
     products = fetch_products_from_google_sheet()
     return jsonify(products)
 
+@app.route("/get_balance")
+def get_balance():
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"balance": 0})
+    balance = get_user_balance(user_id)
+    return jsonify({"balance": balance})
+
+@app.route("/buy_product", methods=["POST"])
+def buy_product():
+    data = request.json
+    user_id = data.get("telegram_user_id")
+    product_name = data.get("product_name")
+    price = float(data.get("price", 0))
+
+    if not all([user_id, product_name]):
+        return jsonify({"status": "error", "error": "Missing fields"}), 400
+
+    current_balance = get_user_balance(user_id)
+    if current_balance < price:
+        return jsonify({"status": "error", "error": "Недостаточно средств"}), 400
+
+    # списываем баланс
+    update_user_balance(user_id, current_balance - price)
+
+    # уменьшаем stock
+    sheet = get_google_sheet()
+    data_rows = sheet.get_all_records()
+    for idx, row in enumerate(data_rows, start=2):
+        if row.get("Name") == product_name:
+            stock = int(row.get("Stock", 0))
+            sheet.update_cell(idx, 3, max(stock - 1, 0))
+            break
+
+    # отправка товара пользователю через бота
+    asyncio.create_task(send_product(int(user_id), product_name))
+    return jsonify({"status": "ok"})
+
 @app.route("/tribute_webhook", methods=["POST"])
 def tribute_webhook():
     data = request.json
@@ -91,7 +156,7 @@ def tribute_webhook():
         product_name = metadata.get("product_name")
         if user_id and product_name:
             asyncio.create_task(send_product(user_id, product_name))
-            # Уменьшаем stock
+            # уменьшаем stock
             try:
                 sheet = get_google_sheet()
                 all_rows = sheet.get_all_records()
@@ -122,7 +187,7 @@ def create_payment():
     }
 
     payload = {
-        "amount": int(float(price) * 100),  # в центах
+        "amount": int(float(price) * 100),
         "currency": "USD",
         "metadata": {
             "telegram_user_id": telegram_user_id,
@@ -182,14 +247,14 @@ async def start(message: Message):
         try:
             users_sheet = sheet.worksheet("Users")
         except gspread.WorksheetNotFound:
-            users_sheet = sheet.add_worksheet(title="Users", rows="1000", cols="2")
-            users_sheet.append_row(["UserID", "Username"])
+            users_sheet = sheet.add_worksheet(title="Users", rows="1000", cols="3")
+            users_sheet.append_row(["UserID", "Username", "Balance"])
 
         all_rows = users_sheet.get_all_values()
         users = [str(row[0]) for row in all_rows[1:]] if len(all_rows) > 1 else []
 
         if str(message.from_user.id) not in users:
-            users_sheet.append_row([message.from_user.id, message.from_user.username or ""])
+            users_sheet.append_row([message.from_user.id, message.from_user.username or "", 0])
     except Exception as e:
         print("Ошибка добавления пользователя:", e)
 
