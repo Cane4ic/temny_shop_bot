@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, jsonify, send_file
 from threading import Thread
 from aiogram import Bot, Dispatcher, types
@@ -6,33 +7,48 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, WebAppInfo, FSInputFile
+from aiogram.types import Message, WebAppInfo, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 import asyncio
-import csv
-import aiohttp
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
-GOOGLE_SHEET_CSV_URL = os.environ.get("GOOGLE_SHEET_CSV_URL")  # ссылка на опубликованный CSV Google Sheet
+GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "TEMNY SHOP")
+
+# ---------- GOOGLE SHEETS ----------
+def get_google_sheet():
+    creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
+    creds = Credentials.from_service_account_info(creds_json)
+    client = gspread.authorize(creds)
+    return client.open(GOOGLE_SHEET_NAME).sheet1
+
+def fetch_products_from_google_sheet():
+    sheet = get_google_sheet()
+    data = sheet.get_all_records()
+    products = {}
+    for row in data:
+        name = row.get("Name")
+        price = row.get("Price", "0")
+        stock = row.get("Stock", "0")
+        category = row.get("Category", "Other")
+        if name:
+            products[name] = {"price": price, "stock": stock, "category": category}
+    return products
+
+def update_product_in_sheet(product_name, field, new_value):
+    sheet = get_google_sheet()
+    data = sheet.get_all_records()
+    for idx, row in enumerate(data, start=2):  # строка 2 — после заголовков
+        if row.get("Name") == product_name:
+            col_map = {"Name": 1, "Price": 2, "Stock": 3, "Category": 4}
+            if field in col_map:
+                sheet.update_cell(idx, col_map[field], new_value)
+            break
 
 # ---------- FLASK ----------
 app = Flask(__name__)
-
-async def fetch_products_from_google_sheet():
-    products = {}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(GOOGLE_SHEET_CSV_URL) as resp:
-            text = await resp.text()
-            reader = csv.DictReader(text.splitlines())
-            for row in reader:
-                name = row.get("Name")
-                price = row.get("Price", "0")
-                stock = row.get("Stock", "0")
-                category = row.get("Category", "Other")
-                if name:
-                    products[name] = {"price": price, "stock": stock, "category": category}
-    return products
 
 @app.route("/")
 def index():
@@ -40,8 +56,7 @@ def index():
 
 @app.route("/products")
 def get_products():
-    # Flask не умеет напрямую работать с async, поэтому используем asyncio.run
-    products = asyncio.run(fetch_products_from_google_sheet())
+    products = fetch_products_from_google_sheet()
     return jsonify(products)
 
 def run_flask():
@@ -61,14 +76,35 @@ class AdminLogin(StatesGroup):
     waiting_for_login = State()
     waiting_for_password = State()
 
-class AdminAction(StatesGroup):
-    waiting_for_new_item = State()
-    waiting_for_restock = State()
-    waiting_for_new_price = State()
+class EditProduct(StatesGroup):
+    waiting_for_product_choice = State()
+    waiting_for_field_choice = State()
+    waiting_for_new_value = State()
+
+class Broadcast(StatesGroup):
+    waiting_for_text = State()
 
 # --- BOT HANDLERS ---
 @dp.message(lambda m: m.text == "/start")
 async def start(message: Message):
+    # сохраняем пользователя в Google Sheets (если нужно)
+    try:
+        creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
+        creds = Credentials.from_service_account_info(creds_json)
+        client = gspread.authorize(creds)
+        sheet = client.open(GOOGLE_SHEET_NAME)
+        try:
+            users_sheet = sheet.worksheet("Users")
+        except gspread.WorksheetNotFound:
+            users_sheet = sheet.add_worksheet(title="Users", rows="1000", cols="2")
+            users_sheet.append_row(["UserID", "Username"])
+
+        users = [str(row[0]) for row in users_sheet.get_all_values()[1:]]
+        if str(message.from_user.id) not in users:
+            users_sheet.append_row([message.from_user.id, message.from_user.username or ""])
+    except Exception as e:
+        print("Ошибка добавления пользователя:", e)
+
     kb = InlineKeyboardBuilder()
     kb.button(text="🛍 Открыть TEMNY SHOP", web_app=WebAppInfo(url=WEBAPP_URL))
 
@@ -108,22 +144,91 @@ async def process_password(message: Message, state: FSMContext):
     if login == ADMIN_LOGIN and password == ADMIN_PASSWORD:
         admins.add(user_id)
 
-        # ✅ Клавиатура для панели администратора
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [
-                types.InlineKeyboardButton(text="Редактировать товар", callback_data="edit_product"),
-                types.InlineKeyboardButton(text="Сделать рассылку", callback_data="broadcast")
-            ]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Редактировать товар", callback_data="edit_product")],
+            [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="send_broadcast")]
         ])
 
         await message.answer(
-            "✅ Вы авторизованы\n\n"
-            "Добро пожаловать в Admin Panel.\n\n"
-            "Пожалуйста выберите действие, которое хотите сделать ниже:",
+            "👑 <b>Добро пожаловать в Admin Panel</b>\n\n"
+            "Пожалуйста, выберите действие, которое хотите сделать ниже:",
+            parse_mode="HTML",
             reply_markup=keyboard
         )
     else:
-        await message.answer("❌ Неверный логин или пароль")
+        await message.answer("Неверный логин или пароль ❌")
+    await state.clear()
+
+# ---------- CALLBACK: РЕДАКТИРОВАНИЕ ----------
+@dp.callback_query(lambda c: c.data == "edit_product")
+async def start_edit_product(callback: CallbackQuery, state: FSMContext):
+    products = fetch_products_from_google_sheet()
+    keyboard = InlineKeyboardBuilder()
+    for name in products.keys():
+        keyboard.button(text=name, callback_data=f"choose_product:{name}")
+    keyboard.adjust(2)
+    await callback.message.answer("Выберите товар для редактирования:", reply_markup=keyboard.as_markup())
+    await state.set_state(EditProduct.waiting_for_product_choice)
+
+@dp.callback_query(lambda c: c.data.startswith("choose_product:"))
+async def choose_product(callback: CallbackQuery, state: FSMContext):
+    product_name = callback.data.split(":", 1)[1]
+    await state.update_data(product_name=product_name)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💵 Цена", callback_data="edit_field:Price")],
+        [InlineKeyboardButton(text="📦 Количество", callback_data="edit_field:Stock")],
+        [InlineKeyboardButton(text="🏷 Категория", callback_data="edit_field:Category")],
+        [InlineKeyboardButton(text="📝 Название", callback_data="edit_field:Name")]
+    ])
+    await callback.message.answer(f"Что хотите изменить в <b>{product_name}</b>?", parse_mode="HTML", reply_markup=keyboard)
+    await state.set_state(EditProduct.waiting_for_field_choice)
+
+@dp.callback_query(lambda c: c.data.startswith("edit_field:"))
+async def choose_field(callback: CallbackQuery, state: FSMContext):
+    field = callback.data.split(":", 1)[1]
+    await state.update_data(field=field)
+    await callback.message.answer(f"Введите новое значение для поля <b>{field}</b>:", parse_mode="HTML")
+    await state.set_state(EditProduct.waiting_for_new_value)
+
+@dp.message(EditProduct.waiting_for_new_value)
+async def set_new_value(message: Message, state: FSMContext):
+    data = await state.get_data()
+    product_name = data["product_name"]
+    field = data["field"]
+    new_value = message.text
+
+    update_product_in_sheet(product_name, field, new_value)
+    await message.answer(f"✅ Поле <b>{field}</b> товара <b>{product_name}</b> успешно обновлено!", parse_mode="HTML")
+    await state.clear()
+
+# ---------- CALLBACK: РАССЫЛКА ----------
+@dp.callback_query(lambda c: c.data == "send_broadcast")
+async def start_broadcast(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите текст рассылки:")
+    await state.set_state(Broadcast.waiting_for_text)
+
+@dp.message(Broadcast.waiting_for_text)
+async def send_broadcast(message: Message, state: FSMContext):
+    text = message.text
+    try:
+        creds_json = json.loads(os.environ.get("GOOGLE_CREDENTIALS"))
+        creds = Credentials.from_service_account_info(creds_json)
+        client = gspread.authorize(creds)
+        sheet = client.open(GOOGLE_SHEET_NAME).worksheet("Users")
+        users = sheet.get_all_records()
+
+        count = 0
+        for user in users:
+            try:
+                await bot.send_message(user["UserID"], text)
+                count += 1
+            except:
+                pass
+
+        await message.answer(f"📢 Рассылка завершена!\n✅ Успешно отправлено {count} сообщений.")
+    except Exception as e:
+        await message.answer(f"Ошибка при рассылке: {e}")
     await state.clear()
 
 # ---------- MAIN ----------
@@ -131,9 +236,6 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # Run Flask in a separate thread
     t = Thread(target=run_flask)
     t.start()
-
-    # Run bot in main thread
     asyncio.run(main())
