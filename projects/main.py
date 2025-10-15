@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import tempfile
 from threading import Thread
 import asyncio
 import requests
@@ -24,18 +25,28 @@ TRIBUTE_API_KEY = os.environ.get("TRIBUTE_API_KEY")
 TRIBUTE_PROJECT_ID = os.environ.get("TRIBUTE_PROJECT_ID")
 
 # ---------- GOOGLE SHEETS ----------
-def get_google_sheet():
+def get_google_client():
     creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_BASE64")
     if not creds_b64:
         raise ValueError("Переменная окружения GOOGLE_CREDENTIALS_BASE64 не задана!")
 
     creds_json = json.loads(base64.b64decode(creds_b64))
+
+    # создаем временный файл
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".json") as tmp_file:
+        json.dump(creds_json, tmp_file)
+        tmp_path = tmp_file.name
+
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
+    creds = Credentials.from_service_account_file(tmp_path, scopes=scopes)
     client = gspread.authorize(creds)
+    return client
+
+def get_google_sheet():
+    client = get_google_client()
     return client.open(GOOGLE_SHEET_NAME).sheet1
 
 def fetch_products_from_google_sheet():
@@ -68,13 +79,13 @@ def update_product_in_sheet(product_name, field, new_value):
     except Exception as e:
         print(f"Ошибка обновления {field} для {product_name}: {e}")
 
-# ---------- USERS / BALANCE ----------
 def get_users_sheet():
-    sheet = get_google_sheet().parent
+    client = get_google_client()
+    sheet_parent = client.open(GOOGLE_SHEET_NAME)
     try:
-        return sheet.worksheet("Users")
+        return sheet_parent.worksheet("Users")
     except gspread.WorksheetNotFound:
-        users_sheet = sheet.add_worksheet(title="Users", rows="1000", cols="3")
+        users_sheet = sheet_parent.add_worksheet(title="Users", rows="1000", cols="3")
         users_sheet.append_row(["UserID", "Username", "Balance"])
         return users_sheet
 
@@ -129,10 +140,8 @@ def buy_product():
     if current_balance < price:
         return jsonify({"status": "error", "error": "Недостаточно средств"}), 400
 
-    # списываем баланс
     update_user_balance(user_id, current_balance - price)
 
-    # уменьшаем stock
     sheet = get_google_sheet()
     data_rows = sheet.get_all_records()
     for idx, row in enumerate(data_rows, start=2):
@@ -141,7 +150,6 @@ def buy_product():
             sheet.update_cell(idx, 3, max(stock - 1, 0))
             break
 
-    # отправка товара пользователю через бота
     asyncio.create_task(send_product(int(user_id), product_name))
     return jsonify({"status": "ok"})
 
@@ -156,7 +164,6 @@ def tribute_webhook():
         product_name = metadata.get("product_name")
         if user_id and product_name:
             asyncio.create_task(send_product(user_id, product_name))
-            # уменьшаем stock
             try:
                 sheet = get_google_sheet()
                 all_rows = sheet.get_all_records()
@@ -243,7 +250,7 @@ class Broadcast(StatesGroup):
 @dp.message(lambda m: m.text == "/start")
 async def start(message: Message):
     try:
-        sheet = get_google_sheet().parent
+        sheet = get_google_client().open(GOOGLE_SHEET_NAME)
         try:
             users_sheet = sheet.worksheet("Users")
         except gspread.WorksheetNotFound:
@@ -382,7 +389,7 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext):
 async def send_broadcast(message: Message, state: FSMContext):
     text = message.text
     try:
-        sheet = get_google_sheet().parent.worksheet("Users")
+        sheet = get_google_client().open(GOOGLE_SHEET_NAME).worksheet("Users")
         users = sheet.get_all_records()
         count = 0
         for user in users:
