@@ -11,6 +11,7 @@ from aiogram.types import Message, WebAppInfo, FSInputFile, InlineKeyboardButton
 import asyncio
 import gspread
 from google.oauth2.service_account import Credentials
+from aiogram.filters import Command
 
 # ---------- CONFIG ----------
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -257,4 +258,5 @@ if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.start()
     asyncio.run(main())
+
 
