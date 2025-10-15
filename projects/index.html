@@ -45,7 +45,7 @@
     margin-top:6vh;
   }
   .title{
-    font-family: "Cinzel Decorative", "Cinzel Decorative", serif;
+    font-family: "Cinzel Decorative", serif;
     font-size:38px;
     letter-spacing:2px;
     color:#fff;
@@ -186,7 +186,6 @@ let CATALOG = {}; // категории и товары
 
 async function loadCatalog() {
   try {
-    // Замените YOUR_SHEET_ID на ID вашего Google Sheets
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTd1pxKHn8UJRhbAAFBGnv-tWUIswz8b6cK6_TkwSSGym7uz9iIHmcotCfKMG3e1Q9s-kvXO3kYK7BK/pub?output=csv";
     const res = await fetch(SHEET_URL);
     const csvText = await res.text();
@@ -261,12 +260,38 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
-function buy(id,cat){
+function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
   if(!item) return alert('Товар не найден');
-  const ok = confirm(`Купить "${item.name}" за ${item.price}?`);
-  if(ok){ alert('Заказ оформлен!'); }
+
+  const priceNumber = parseFloat(item.price.replace('$','')) || 0;
+  const user_id = window.Telegram.WebApp.initDataUnsafe.user.id;
+  const tributeUrl = "https://t.tribute.io/pay"; // Вставьте ссылку вашего Tribute проекта
+
+  const payload = {
+    amount: priceNumber,
+    currency: "USD",
+    metadata: {
+      telegram_user_id: user_id,
+      product_name: item.name
+    }
+  };
+
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = tributeUrl;
+  form.target = '_blank';
+
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'data';
+  input.value = JSON.stringify(payload);
+  form.appendChild(input);
+
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
 }
 
 function showView(name){
