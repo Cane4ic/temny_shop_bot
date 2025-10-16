@@ -200,6 +200,7 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
+# ---------- ADMIN HANDLERS ----------
 admins = set()
 ADMIN_LOGIN = "admin"
 ADMIN_PASSWORD = "1234"
@@ -208,69 +209,32 @@ class AdminLogin(StatesGroup):
     waiting_for_login = State()
     waiting_for_password = State()
 
-class AddProduct(StatesGroup):
-    name = State()
-    price = State()
-    stock = State()
-    category = State()
-
 class EditProduct(StatesGroup):
     select_product = State()
     field = State()
 
-# ---------- HANDLERS ----------
-@dp.message(Command("start"))
-async def start(message: Message):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (user_id, username) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;",
-        (message.from_user.id, message.from_user.username)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🛍 Открыть TEMNY SHOP", web_app=WebAppInfo(url=WEBAPP_URL))
-    kb.adjust(1)
-
-    banner = FSInputFile("banner.png")
-    caption = (
-        "✨ <b>Добро пожаловать в</b> <i>TEMNY SHOP</i> ✨\n\n"
-        "🖤 Магазин премиум-товаров и цифровых сервисов.\n"
-        "🔥 Всё быстро, безопасно и анонимно.\n\n"
-        "👇 Нажми на кнопку ниже, чтобы открыть магазин:"
-    )
-
-    await message.answer_photo(
-        photo=banner,
-        caption=caption,
-        reply_markup=kb.as_markup(),
-        parse_mode="HTML"
-    )
-
-# ---------- ADMIN HANDLERS ----------
+# Команда /admin
 @dp.message(Command("admin"))
-async def admin_login(message: Message):
-    await AdminLogin.waiting_for_login.set()
+async def admin_login_start(message: Message, state: FSMContext):
+    await state.set_state(AdminLogin.waiting_for_login)
     await message.answer("Введите логин:")
 
 @dp.message(StateFilter(AdminLogin.waiting_for_login))
-async def process_login(message: Message, state: FSMContext):
+async def process_admin_login(message: Message, state: FSMContext):
     if message.text == ADMIN_LOGIN:
         await state.update_data(login=message.text)
-        await AdminLogin.waiting_for_password.set()
+        await state.set_state(AdminLogin.waiting_for_password)
         await message.answer("Введите пароль:")
     else:
-        await message.answer("Неверный логин. Попробуйте снова.")
+        await message.answer("❌ Неверный логин. Попробуйте снова.")
 
 @dp.message(StateFilter(AdminLogin.waiting_for_password))
-async def process_password(message: Message, state: FSMContext):
+async def process_admin_password(message: Message, state: FSMContext):
     if message.text == ADMIN_PASSWORD:
         admins.add(message.from_user.id)
         await message.answer("✅ Вы вошли как админ!")
         await state.clear()
+
         kb = InlineKeyboardBuilder()
         kb.button(text="➕ Добавить товар", callback_data="add_product")
         kb.button(text="📝 Редактировать товар", callback_data="edit_product")
@@ -278,22 +242,34 @@ async def process_password(message: Message, state: FSMContext):
         kb.button(text="📦 Просмотреть товары", callback_data="list_products")
         kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
         kb.adjust(1)
+
         await message.answer("Выберите действие:", reply_markup=kb.as_markup())
     else:
-        await message.answer("Неверный пароль. Попробуйте снова.")
+        await message.answer("❌ Неверный пароль. Попробуйте снова.")
+
+def admin_only(func):
+    async def wrapper(callback: types.CallbackQuery):
+        if callback.from_user.id not in admins:
+            await callback.answer("❌ Только для админов", show_alert=True)
+            return
+        await func(callback)
+    return wrapper
 
 @dp.callback_query(lambda c: c.data == "list_products")
+@admin_only
 async def list_products_cb(callback: types.CallbackQuery):
     products = fetch_products_from_db()
     if not products:
         await callback.message.answer("Список товаров пуст.")
-    else:
-        text = "📦 Список товаров:\n\n"
-        for p in products:
-            text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
-        await callback.message.answer(text)
+        return
+
+    text = "📦 Список товаров:\n\n"
+    for p in products:
+        text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
+    await callback.message.answer(text)
 
 @dp.callback_query(lambda c: c.data == "user_balances")
+@admin_only
 async def user_balances_cb(callback: types.CallbackQuery):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -301,6 +277,7 @@ async def user_balances_cb(callback: types.CallbackQuery):
     rows = cur.fetchall()
     cur.close()
     conn.close()
+    
     if not rows:
         await callback.message.answer("Нет зарегистрированных пользователей.")
         return
@@ -310,6 +287,7 @@ async def user_balances_cb(callback: types.CallbackQuery):
         username = u['username'] or "—"
         text += f"• {username} ({u['user_id']}): ${u['balance']}\n"
     text += "\nВведите ID пользователя, чтобы пополнить его баланс:"
+    
     await callback.message.answer(text)
     await EditProduct.select_product.set()
 
@@ -329,12 +307,23 @@ async def enter_topup_amount(message: Message, state: FSMContext):
         amount = float(message.text.strip())
         data = await state.get_data()
         user_id = data["selected_user_id"]
-        current_balance = get_user_balance(user_id)
-        update_user_balance(user_id, current_balance + amount)
-        await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${current_balance + amount}")
+
+        # Отправка на CryptoBot
+        future = asyncio.run_coroutine_threadsafe(
+            bot.send_message(
+                "CryptoBot",
+                f"Пополнение баланса ${amount} для пользователя {user_id}"
+            ),
+            bot_loop
+        )
+        future.result(timeout=5)
+
+        await message.answer(f"✅ Запрос на пополнение ${amount} для пользователя {user_id} отправлен.")
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите корректную сумму.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка отправки запроса: {e}")
 
 # --- Send product notification ---
 async def send_product(user_id: int, product_name: str):
