@@ -40,30 +40,9 @@
   .modal-content input{width:100%;padding:10px;border-radius:10px;border:1px solid #222;background:#000;color:#fff;margin-bottom:12px;font-size:16px;}
   .modal-content button{padding:10px 20px;border-radius:10px;border:0;background:var(--accent);color:#000;font-weight:700;cursor:pointer;font-size:16px;}
   @media (max-width:380px){.title{font-size:34px}.big-btn{padding:12px}.icon-wrap{width:48px;height:48px}.btn-label{font-size:18px}}
-
-  /* Минималистичный футер */
-  .footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    max-width: 420px;
-    background: transparent;
-    display: flex;
-    justify-content: center;
-    padding: 6px 0;
-    z-index: 10;
-  }
-  .footer-btn {
-    font-size: 28px;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 10px;
-    transition: background 0.2s;
-  }
+  .footer {position: fixed;bottom: 0;left: 0;width: 100%;max-width: 420px;background: transparent;display: flex;justify-content: center;padding: 6px 0;z-index: 10;}
+  .footer-btn {font-size: 28px;cursor: pointer;padding: 8px;border-radius: 10px;transition: background 0.2s;}
   .footer-btn:hover { background: rgba(255,255,255,0.05); }
-
-  /* Стиль страницы профиля */
   .profile-page{padding: 24px;display:flex;flex-direction:column;gap:16px;align-items:center;}
   .profile-item{font-size:16px;font-weight:500;color:#fff;}
   .profile-balance{font-size:20px;font-weight:700;color:#ffb0d6;}
@@ -124,15 +103,20 @@ let CATALOG = {};
 let USER_BALANCE = 0;
 let USER_ID = 0;
 
+// ✅ Получение ID из Telegram или URL
 async function getUserId(){
-  if(!window.Telegram || !window.Telegram.WebApp) return 0;
-  try {
-    window.Telegram.WebApp.ready();
-    return Number(window.Telegram.WebApp.initData?.user?.id || window.Telegram.WebApp.initDataUnsafe?.user?.id || 0);
-  } catch(e){
-    console.warn("Telegram WebApp не готов:", e);
-    return 0;
+  if(window.Telegram && window.Telegram.WebApp){
+    try {
+      window.Telegram.WebApp.ready();
+      return Number(
+        window.Telegram.WebApp.initData?.user?.id ||
+        window.Telegram.WebApp.initDataUnsafe?.user?.id ||
+        0
+      );
+    } catch(e){}
   }
+  const params = new URLSearchParams(window.location.search);
+  return Number(params.get("user_id") || 0);
 }
 
 async function loadBalance(){
