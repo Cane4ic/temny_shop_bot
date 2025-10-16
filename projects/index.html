@@ -65,7 +65,7 @@
 let CATALOG = {}; 
 let USER_BALANCE = 0;
 
-// Загружаем баланс пользователя безопасно
+// Загружаем баланс пользователя
 async function loadBalance(){
   let user_id;
   try{
@@ -88,30 +88,23 @@ async function loadBalance(){
   }
 }
 
-// Загрузка каталога товаров
+// 🔥 Загружаем каталог товаров из базы через Flask API
 async function loadCatalog() {
   try {
-    const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTd1pxKHn8UJRhbAAFBGnv-tWUIswz8b6cK6_TkwSSGym7uz9iIHmcotCfKMG3e1Q9s-kvXO3kYK7BK/pub?output=csv";
-    const res = await fetch(SHEET_URL);
-    const csvText = await res.text();
+    const res = await fetch("/products");
+    const data = await res.json();
 
-    const lines = csvText.split("\n").filter(l => l.trim() !== "");
-    const headers = lines[0].split(",");
-    const data = lines.slice(1).map(l => {
-      const obj = {};
-      l.split(",").forEach((v,i) => obj[headers[i].trim()] = v.trim());
-      return obj;
-    });
-
+    // data = { "ProductName": { price, stock, category } }
     CATALOG = {};
-    data.forEach(item => {
-      const cat = item.Category || "other";
+
+    Object.entries(data).forEach(([name, info]) => {
+      const cat = info.category || "Other";
       if(!CATALOG[cat]) CATALOG[cat] = { title: cat.toUpperCase(), items: [] };
       CATALOG[cat].items.push({
-        id: item.Name,
-        name: item.Name,
-        desc: item.Description || "Премиум товар",
-        price: `$${item.Price}`
+        id: name,
+        name: name,
+        desc: `Остаток: ${info.stock}`,
+        price: `$${info.price}`
       });
     });
 
@@ -197,6 +190,8 @@ async function buy(id, cat){
       USER_BALANCE -= priceNumber;
       document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
       alert(`✅ Товар "${item.name}" успешно куплен!`);
+      await loadCatalog(); // обновляем каталог
+      renderCategories();
     } else {
       alert(`❌ ${data.error}`);
     }
@@ -206,19 +201,18 @@ async function buy(id, cat){
   }
 }
 
-// Показываем нужный вид
+// Переключение видов
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>{
     v.style.display = (v.getAttribute('data-view')===name) ? 'flex' : 'none';
   });
-  try{ window.Telegram?.WebApp?.MainButton?.hide(); }catch(e){}
 }
 
 // Инициализация
 async function initWebApp(){
   await loadCatalog();
-  renderCategories(); // сразу рендерим категории
-  await loadBalance(); // баланс грузим асинхронно
+  renderCategories();
+  await loadBalance();
   showView('menu');
 }
 
@@ -231,5 +225,6 @@ try{
   }
 }catch(e){}
 </script>
+
 </body>
 </html>
