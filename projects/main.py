@@ -134,7 +134,7 @@ def get_balance():
     if not user_id:
         return jsonify({"balance": 0})
     try:
-        balance = get_user_balance(int(user_id))  # Приведение к int
+        balance = get_user_balance(int(user_id))
         return jsonify({"balance": balance})
     except Exception as e:
         print(f"[Flask ERROR] {e}")
@@ -197,6 +197,10 @@ class AddProduct(StatesGroup):
 class EditProduct(StatesGroup):
     select_product = State()
     field = State()
+    new_value = State()
+
+class DeleteProduct(StatesGroup):
+    select_product = State()
 
 class TopUpUser(StatesGroup):
     select_user = State()
@@ -234,7 +238,7 @@ async def start(message: Message):
         parse_mode="HTML"
     )
 
-# ---------- ADMIN HANDLERS ----------
+# ---------- ADMIN LOGIN ----------
 @dp.message(Command("admin"))
 async def admin_login(message: Message, state: FSMContext):
     await state.set_state(AdminLogin.waiting_for_login)
@@ -266,6 +270,8 @@ async def process_password(message: Message, state: FSMContext):
     else:
         await message.answer("Неверный пароль. Попробуйте снова.")
 
+# ---------- CALLBACKS FOR ADMIN ----------
+# List products
 @dp.callback_query(lambda c: c.data == "list_products")
 async def list_products_cb(callback: types.CallbackQuery):
     products = fetch_products_from_db()
@@ -277,6 +283,7 @@ async def list_products_cb(callback: types.CallbackQuery):
             text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
         await callback.message.answer(text)
 
+# User balances
 @dp.callback_query(lambda c: c.data == "user_balances")
 async def user_balances_cb(callback: types.CallbackQuery, state: FSMContext):
     conn = get_db_connection()
@@ -297,6 +304,7 @@ async def user_balances_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(text)
     await state.set_state(TopUpUser.select_user)
 
+# Top up user
 @dp.message(StateFilter(TopUpUser.select_user))
 async def select_user_to_topup(message: Message, state: FSMContext):
     try:
@@ -316,28 +324,51 @@ async def enter_topup_amount(message: Message, state: FSMContext):
         current_balance = get_user_balance(user_id)
         new_balance = current_balance + amount
         update_user_balance(user_id, new_balance)
-
-        try:
-            await bot.send_message(
-                user_id,
-                f"💰 Ваш баланс был пополнен на ${amount}. Новый баланс: ${new_balance}"
-            )
-        except Exception as e:
-            print(f"Ошибка при уведомлении пользователя: {e}")
-
         await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${new_balance}")
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите корректную сумму.")
 
-# --- Send product notification ---
+# ---------- ADD PRODUCT ----------
+@dp.callback_query(lambda c: c.data == "add_product")
+async def add_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AddProduct.name)
+    await callback.message.answer("Введите название товара:")
+
+@dp.message(StateFilter(AddProduct.name))
+async def add_product_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await message.answer("Введите цену товара:")
+    await state.set_state(AddProduct.price)
+
+@dp.message(StateFilter(AddProduct.price))
+async def add_product_price(message: Message, state: FSMContext):
+    await state.update_data(price=float(message.text.strip()))
+    await message.answer("Введите количество на складе:")
+    await state.set_state(AddProduct.stock)
+
+@dp.message(StateFilter(AddProduct.stock))
+async def add_product_stock(message: Message, state: FSMContext):
+    await state.update_data(stock=int(message.text.strip()))
+    await message.answer("Введите категорию товара:")
+    await state.set_state(AddProduct.category)
+
+@dp.message(StateFilter(AddProduct.category))
+async def add_product_category(message: Message, state: FSMContext):
+    data = await state.get_data()
+    category = message.text.strip()
+    add_product_to_db(data['name'], data['price'], data['stock'], category)
+    await message.answer(f"✅ Товар {data['name']} добавлен!")
+    await state.clear()
+
+# ---------- SEND PRODUCT NOTIFICATION ----------
 async def send_product(user_id: int, product_name: str):
     try:
         await bot.send_message(user_id, f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.", parse_mode="HTML")
     except Exception as e:
         print(f"Ошибка при отправке товара: {e}")
 
-# ---------- CRYPTOBOT PAYMENT CHECK ----------
+# ---------- CRYPTOBOT ----------
 crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
 
 @crypto_client.on(events.NewMessage(from_users="CryptoBot"))
