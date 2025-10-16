@@ -12,19 +12,15 @@ from aiogram.filters import Command, StateFilter
 from psycopg2.extras import RealDictCursor
 import psycopg2
 from dotenv import load_dotenv
-
-# Telethon для чтения сообщений от CryptoBot
 from telethon import TelegramClient, events
 
 # ---------- LOAD CONFIG ----------
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
-
-# Telethon config
-API_ID = int(os.environ.get("TG_API_ID"))           # Telegram API ID
-API_HASH = os.environ.get("TG_API_HASH")           # Telegram API HASH
-PHONE = os.environ.get("TG_PHONE")                 # Телефон аккаунта для мониторинга CryptoBot
+API_ID = int(os.environ.get("TG_API_ID"))
+API_HASH = os.environ.get("TG_API_HASH")
+PHONE = os.environ.get("TG_PHONE")
 
 # ---------- DATABASE ----------
 def get_db_connection():
@@ -172,6 +168,30 @@ def buy_product():
 
     return jsonify({"status": "ok"})
 
+# ---------- CREATE DEPOSIT ----------
+@app.route("/create_deposit", methods=["POST"])
+def create_deposit():
+    data = request.json
+    user_id = data.get("telegram_user_id")
+    amount = data.get("amount")
+
+    if not user_id or not amount:
+        return jsonify({"status": "error", "error": "Missing fields"}), 400
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            bot.send_message(
+                "CryptoBot",
+                f"Пополнение баланса ${amount} для пользователя {user_id}"
+            ),
+            bot_loop
+        )
+        future.result(timeout=5)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        print(f"Ошибка создания депозита: {e}")
+        return jsonify({"status": "error", "error": "Failed to create deposit"}), 500
+
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
@@ -193,6 +213,10 @@ class AddProduct(StatesGroup):
     price = State()
     stock = State()
     category = State()
+
+class EditProduct(StatesGroup):
+    select_product = State()
+    field = State()
 
 # ---------- HANDLERS ----------
 @dp.message(Command("start"))
@@ -226,7 +250,91 @@ async def start(message: Message):
         parse_mode="HTML"
     )
 
-# --- Admin handlers omitted for brevity (оставляем как есть) ---
+# ---------- ADMIN HANDLERS ----------
+@dp.message(Command("admin"))
+async def admin_login(message: Message):
+    await AdminLogin.waiting_for_login.set()
+    await message.answer("Введите логин:")
+
+@dp.message(StateFilter(AdminLogin.waiting_for_login))
+async def process_login(message: Message, state: FSMContext):
+    if message.text == ADMIN_LOGIN:
+        await state.update_data(login=message.text)
+        await AdminLogin.waiting_for_password.set()
+        await message.answer("Введите пароль:")
+    else:
+        await message.answer("Неверный логин. Попробуйте снова.")
+
+@dp.message(StateFilter(AdminLogin.waiting_for_password))
+async def process_password(message: Message, state: FSMContext):
+    if message.text == ADMIN_PASSWORD:
+        admins.add(message.from_user.id)
+        await message.answer("✅ Вы вошли как админ!")
+        await state.clear()
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Добавить товар", callback_data="add_product")
+        kb.button(text="📝 Редактировать товар", callback_data="edit_product")
+        kb.button(text="❌ Удалить товар", callback_data="delete_product")
+        kb.button(text="📦 Просмотреть товары", callback_data="list_products")
+        kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
+        kb.adjust(1)
+        await message.answer("Выберите действие:", reply_markup=kb.as_markup())
+    else:
+        await message.answer("Неверный пароль. Попробуйте снова.")
+
+@dp.callback_query(lambda c: c.data == "list_products")
+async def list_products_cb(callback: types.CallbackQuery):
+    products = fetch_products_from_db()
+    if not products:
+        await callback.message.answer("Список товаров пуст.")
+    else:
+        text = "📦 Список товаров:\n\n"
+        for p in products:
+            text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
+        await callback.message.answer(text)
+
+@dp.callback_query(lambda c: c.data == "user_balances")
+async def user_balances_cb(callback: types.CallbackQuery):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, username, balance FROM users ORDER BY id;")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    if not rows:
+        await callback.message.answer("Нет зарегистрированных пользователей.")
+        return
+
+    text = "💰 Балансы пользователей:\n\n"
+    for u in rows:
+        username = u['username'] or "—"
+        text += f"• {username} ({u['user_id']}): ${u['balance']}\n"
+    text += "\nВведите ID пользователя, чтобы пополнить его баланс:"
+    await callback.message.answer(text)
+    await EditProduct.select_product.set()
+
+@dp.message(StateFilter(EditProduct.select_product))
+async def select_user_to_topup(message: Message, state: FSMContext):
+    try:
+        user_id = int(message.text.strip())
+        await state.update_data(selected_user_id=user_id)
+        await message.answer(f"Введите сумму для пополнения баланса пользователя {user_id}:")
+        await EditProduct.field.set()
+    except ValueError:
+        await message.answer("❌ Введите корректный ID пользователя.")
+
+@dp.message(StateFilter(EditProduct.field))
+async def enter_topup_amount(message: Message, state: FSMContext):
+    try:
+        amount = float(message.text.strip())
+        data = await state.get_data()
+        user_id = data["selected_user_id"]
+        current_balance = get_user_balance(user_id)
+        update_user_balance(user_id, current_balance + amount)
+        await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${current_balance + amount}")
+        await state.clear()
+    except ValueError:
+        await message.answer("❌ Введите корректную сумму.")
 
 # --- Send product notification ---
 async def send_product(user_id: int, product_name: str):
@@ -241,17 +349,14 @@ crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
 @crypto_client.on(events.NewMessage(from_users="CryptoBot"))
 async def handle_payment(event):
     msg = event.message.message
-    # Пример: "Вы пополнили баланс на $10"
     if "Вы пополнили баланс на $" in msg:
         import re
         m = re.search(r"\$([0-9]+(?:\.[0-9]{1,2})?)", msg)
         if m:
             amount = float(m.group(1))
-            # Получаем telegram_id из сообщения (можно через reply или username)
             if event.message.is_reply:
-                user_id = event.message.reply_to_msg_id  # или другой способ
+                user_id = event.message.reply_to_msg_id
             else:
-                # Для простоты возьмем свой ID, можно потом уточнить
                 user_id = None
             if user_id:
                 current_balance = get_user_balance(user_id)
