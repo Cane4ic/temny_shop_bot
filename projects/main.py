@@ -92,7 +92,7 @@ def delete_product_from_db(name):
     cur.close()
     conn.close()
 
-def get_user_balance(user_id):
+def get_user_balance(user_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT balance FROM users WHERE user_id = %s;", (user_id,))
@@ -107,7 +107,7 @@ def get_user_balance(user_id):
     conn.close()
     return balance
 
-def update_user_balance(user_id, new_balance):
+def update_user_balance(user_id: int, new_balance):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("UPDATE users SET balance = %s WHERE user_id = %s;", (new_balance, user_id))
@@ -134,7 +134,7 @@ def get_balance():
     if not user_id:
         return jsonify({"balance": 0})
     try:
-        balance = get_user_balance(user_id)
+        balance = get_user_balance(int(user_id))  # Приведение к int
         return jsonify({"balance": balance})
     except Exception as e:
         print(f"[Flask ERROR] {e}")
@@ -143,7 +143,7 @@ def get_balance():
 @app.route("/buy_product", methods=["POST"])
 def buy_product():
     data = request.json
-    user_id = data.get("telegram_user_id")
+    user_id = int(data.get("telegram_user_id", 0))
     product_name = data.get("product_name")
     price = float(data.get("price", 0))
 
@@ -154,7 +154,7 @@ def buy_product():
     if current_balance < price:
         return jsonify({"status": "error", "error": "Недостаточно средств"}), 400
 
-    future = asyncio.run_coroutine_threadsafe(send_product(int(user_id), product_name), bot_loop)
+    future = asyncio.run_coroutine_threadsafe(send_product(user_id, product_name), bot_loop)
     try:
         future.result(timeout=5)
     except Exception as e:
@@ -317,7 +317,6 @@ async def enter_topup_amount(message: Message, state: FSMContext):
         new_balance = current_balance + amount
         update_user_balance(user_id, new_balance)
 
-        # Отправляем уведомление пользователю о новом балансе
         try:
             await bot.send_message(
                 user_id,
@@ -326,7 +325,6 @@ async def enter_topup_amount(message: Message, state: FSMContext):
         except Exception as e:
             print(f"Ошибка при уведомлении пользователя: {e}")
 
-        # Сообщение админу
         await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${new_balance}")
         await state.clear()
     except ValueError:
