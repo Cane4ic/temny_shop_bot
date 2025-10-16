@@ -3,3 +3,5 @@ aiogram
 psycopg2-binary
 python-dotenv
 requests
+telethon
+
