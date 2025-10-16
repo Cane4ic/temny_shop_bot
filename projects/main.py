@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, WebAppInfo, FSInputFile
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from psycopg2.extras import RealDictCursor
 import psycopg2
 from dotenv import load_dotenv
@@ -228,7 +228,6 @@ class AddProduct(StatesGroup):
 # ---------- HANDLERS ----------
 @dp.message(Command("start"))
 async def start(message: Message):
-    # Добавляем пользователя в базу
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -264,7 +263,7 @@ async def admin_command(message: Message, state: FSMContext):
     await message.answer("Введите логин администратора:")
     await state.set_state(AdminLogin.waiting_for_login)
 
-@dp.message(AdminLogin.waiting_for_login)
+@dp.message(StateFilter(AdminLogin.waiting_for_login))
 async def admin_login_step1(message: Message, state: FSMContext):
     if message.text == ADMIN_LOGIN:
         await message.answer("Введите пароль:")
@@ -272,7 +271,7 @@ async def admin_login_step1(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Неверный логин.")
 
-@dp.message(AdminLogin.waiting_for_password)
+@dp.message(StateFilter(AdminLogin.waiting_for_password))
 async def admin_login_step2(message: Message, state: FSMContext):
     if message.text == ADMIN_PASSWORD:
         admins.add(message.from_user.id)
@@ -299,25 +298,25 @@ async def start_add_product(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Введите название товара:")
     await state.set_state(AddProduct.name)
 
-@dp.message(AddProduct.name)
+@dp.message(StateFilter(AddProduct.name))
 async def step_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer("Введите цену:")
     await state.set_state(AddProduct.price)
 
-@dp.message(AddProduct.price)
+@dp.message(StateFilter(AddProduct.price))
 async def step_price(message: Message, state: FSMContext):
     await state.update_data(price=float(message.text))
     await message.answer("Введите количество (stock):")
     await state.set_state(AddProduct.stock)
 
-@dp.message(AddProduct.stock)
+@dp.message(StateFilter(AddProduct.stock))
 async def step_stock(message: Message, state: FSMContext):
     await state.update_data(stock=int(message.text))
     await message.answer("Введите категорию:")
     await state.set_state(AddProduct.category)
 
-@dp.message(AddProduct.category)
+@dp.message(StateFilter(AddProduct.category))
 async def step_category(message: Message, state: FSMContext):
     data = await state.get_data()
     add_product_to_db(data["name"], data["price"], data["stock"], message.text)
@@ -364,7 +363,7 @@ async def edit_price(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(f"Введите новую цену для <b>{name}</b>:", parse_mode="HTML")
     await state.set_state("editing_price")
 
-@dp.message(state="editing_price")
+@dp.message(StateFilter("editing_price"))
 async def save_new_price(message: Message, state: FSMContext):
     data = await state.get_data()
     name = data["edit_name"]
