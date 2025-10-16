@@ -40,6 +40,40 @@
   .modal-content input{width:100%;padding:10px;border-radius:10px;border:1px solid #222;background:#000;color:#fff;margin-bottom:12px;font-size:16px;}
   .modal-content button{padding:10px 20px;border-radius:10px;border:0;background:var(--accent);color:#000;font-weight:700;cursor:pointer;font-size:16px;}
   @media (max-width:380px){.title{font-size:34px}.big-btn{padding:12px}.icon-wrap{width:48px;height:48px}.btn-label{font-size:18px}}
+
+  /* Футер */
+  .footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    z-index: 10;
+  }
+  .footer-line {
+    height: 1px;
+    background: rgba(255,255,255,0.2);
+    margin: 0 12px;
+  }
+  .footer-content {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 12px;
+  }
+  .footer-btn {
+    font-size: 24px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 10px;
+    transition: background 0.2s;
+  }
+  .footer-btn:hover {
+    background: rgba(255,255,255,0.05);
+  }
 </style>
 </head>
 <body>
@@ -73,11 +107,21 @@
   </div>
 </div>
 
+<!-- Модальное окно пополнения -->
 <div class="modal" id="depositModal">
   <div class="modal-content">
     <h3>Пополнить баланс</h3>
     <input type="number" id="depositAmount" placeholder="Сумма в $" min="1">
     <button onclick="submitDeposit()">Перейти к оплате</button>
+  </div>
+</div>
+
+<!-- Футер -->
+<div class="footer">
+  <div class="footer-line"></div>
+  <div class="footer-content">
+    <div class="footer-btn" onclick="openCart()">🛒</div>
+    <div class="footer-btn" onclick="openProfile()">👤</div>
   </div>
 </div>
 
@@ -265,6 +309,9 @@ async function initWebApp(){
   showView('menu');
   setInterval(loadBalance, 2000);
 }
+
+function openCart(){ alert('Открыть корзину'); }
+function openProfile(){ alert('Открыть профиль'); }
 
 initWebApp();
 
