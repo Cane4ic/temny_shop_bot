@@ -133,8 +133,12 @@ def get_balance():
     user_id = request.args.get("user_id")
     if not user_id:
         return jsonify({"balance": 0})
-    balance = get_user_balance(user_id)
-    return jsonify({"balance": balance})
+    try:
+        balance = get_user_balance(user_id)
+        return jsonify({"balance": balance})
+    except Exception as e:
+        print(f"[Flask ERROR] {e}")
+        return jsonify({"balance": 0})
 
 @app.route("/buy_product", methods=["POST"])
 def buy_product():
@@ -340,20 +344,22 @@ crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
 
 @crypto_client.on(events.NewMessage(from_users="CryptoBot"))
 async def handle_payment(event):
-    msg = event.message.message
+    msg = event.raw_text
     if "Вы пополнили баланс на $" in msg:
         import re
         m = re.search(r"\$([0-9]+(?:\.[0-9]{1,2})?)", msg)
         if m:
             amount = float(m.group(1))
-            if event.message.is_reply:
-                user_id = event.message.reply_to_msg_id
-            else:
-                user_id = None
+            user_id = None
+            if event.message.is_reply and hasattr(event.message.reply_to_msg, 'from_id'):
+                user_id = event.message.reply_to_msg.from_id.user_id if hasattr(event.message.reply_to_msg.from_id, 'user_id') else None
             if user_id:
-                current_balance = get_user_balance(user_id)
-                update_user_balance(user_id, current_balance + amount)
-                print(f"💰 Баланс пользователя {user_id} обновлен на +{amount}$")
+                try:
+                    current_balance = get_user_balance(user_id)
+                    update_user_balance(user_id, current_balance + amount)
+                    print(f"💰 Баланс пользователя {user_id} обновлен на +{amount}$")
+                except Exception as e:
+                    print(f"[CRYPTOBOT ERROR] {e}")
 
 async def start_cryptobot_monitor():
     await crypto_client.start(phone=PHONE)
