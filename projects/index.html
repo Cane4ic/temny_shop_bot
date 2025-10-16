@@ -82,28 +82,31 @@
 </div>
 
 <script>
-let CATALOG = {}; 
+let CATALOG = {};
 let USER_BALANCE = 0;
 
-function getUserId(){
-  try{
-    return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
+// Асинхронное получение user_id из Telegram WebApp
+async function getUserId(){
+  if(!window.Telegram || !window.Telegram.WebApp) return 0;
+  try {
+    window.Telegram.WebApp.ready();
+    return window.Telegram.WebApp.initDataUnsafe?.user?.id || 0;
   } catch(e){
     console.warn("Telegram WebApp не готов:", e);
     return 0;
   }
 }
 
-// Загружаем баланс с сервера и обновляем каждый раз
+// Баланс
 async function loadBalance(){
-  const user_id = getUserId();
+  const user_id = await getUserId();
   if(!user_id) return;
   try {
-    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`); // добавляем timestamp, чтобы не кэшировалось
+    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`);
     const data = await res.json();
     if(data.balance !== undefined){
       const newBalance = parseFloat(data.balance) || 0;
-      if(newBalance !== USER_BALANCE){  // обновляем только если есть изменения
+      if(newBalance !== USER_BALANCE){
         USER_BALANCE = newBalance;
         document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
       }
@@ -113,6 +116,7 @@ async function loadBalance(){
   }
 }
 
+// Каталог
 async function loadCatalog() {
   try {
     const res = await fetch("/products");
@@ -125,7 +129,7 @@ async function loadCatalog() {
         id: info.name,
         name: info.name,
         desc: `Остаток: ${info.stock}`,
-        price: parseFloat(info.price) || 0 // храним как число
+        price: parseFloat(info.price) || 0
       });
     });
   } catch (err) {
@@ -133,6 +137,7 @@ async function loadCatalog() {
   }
 }
 
+// Рендер категорий
 function renderCategories(){
   const menu = document.getElementById('menuCategories');
   menu.innerHTML = '';
@@ -146,6 +151,7 @@ function renderCategories(){
   }
 }
 
+// Открытие категории
 function openCategory(key){
   const cat = CATALOG[key];
   if(!cat) return;
@@ -174,6 +180,7 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
+// Покупка
 async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
@@ -181,7 +188,7 @@ async function buy(id, cat){
 
   if(item.price > USER_BALANCE) return alert('❌ Недостаточно средств на балансе');
 
-  const user_id = getUserId();
+  const user_id = await getUserId();
   if(!user_id) return alert('Не удалось получить пользователя');
 
   document.body.style.cursor = 'wait';
@@ -197,7 +204,7 @@ async function buy(id, cat){
     });
     const data = await res.json();
     if(data.status === 'ok'){
-      await loadBalance(); // сразу обновляем баланс после покупки
+      await loadBalance();
       alert(`✅ Товар "${item.name}" успешно куплен!`);
       await loadCatalog();
       renderCategories();
@@ -219,7 +226,7 @@ function hideDepositModal(){ document.getElementById('depositModal').style.displ
 async function submitDeposit(){
   const amount = parseFloat(document.getElementById('depositAmount').value);
   if(isNaN(amount) || amount <= 0) return alert('Введите корректную сумму');
-  const user_id = getUserId();
+  const user_id = await getUserId();
   if(!user_id) return alert('Не удалось получить пользователя');
 
   hideDepositModal();
@@ -233,7 +240,7 @@ async function submitDeposit(){
     const data = await res.json();
     if(data.status==='ok'){
       alert(`💰 Платёж на $${amount} создан. Баланс обновится автоматически.`);
-      await loadBalance(); // сразу обновляем баланс
+      await loadBalance();
     } else {
       alert(`Ошибка: ${data.error}`);
     }
@@ -256,10 +263,11 @@ async function initWebApp(){
   renderCategories();
   await loadBalance();
   showView('menu');
-  setInterval(loadBalance, 2000); // автообновление баланса
+  setInterval(loadBalance, 2000);
 }
 
 initWebApp();
+
 try{
   if(window.Telegram && window.Telegram.WebApp){
     window.Telegram.WebApp.ready();
