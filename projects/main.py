@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 
 # ---------- LOAD CONFIG ----------
 load_dotenv()
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
 TRIBUTE_API_KEY = os.environ.get("TRIBUTE_API_KEY")
@@ -36,7 +35,6 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id SERIAL PRIMARY KEY,
@@ -46,7 +44,6 @@ def init_db():
             category TEXT DEFAULT 'Other'
         );
     """)
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
@@ -55,7 +52,6 @@ def init_db():
             balance REAL DEFAULT 0
         );
     """)
-
     conn.commit()
     cur.close()
     conn.close()
@@ -73,7 +69,8 @@ def fetch_products_from_db():
 def add_product_to_db(name, price, stock, category):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO products (name, price, stock, category) VALUES (%s, %s, %s, %s);", (name, price, stock, category))
+    cur.execute("INSERT INTO products (name, price, stock, category) VALUES (%s, %s, %s, %s);",
+                (name, price, stock, category))
     conn.commit()
     cur.close()
     conn.close()
@@ -229,6 +226,39 @@ class AddProduct(StatesGroup):
     category = State()
 
 # ---------- HANDLERS ----------
+@dp.message(Command("start"))
+async def start(message: Message):
+    # Добавляем пользователя в базу
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO users (user_id, username) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING;",
+        (message.from_user.id, message.from_user.username)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🛍 Открыть TEMNY SHOP", web_app=WebAppInfo(url=WEBAPP_URL))
+    kb.adjust(1)
+
+    banner = FSInputFile("banner.png")
+    caption = (
+        "✨ <b>Добро пожаловать в</b> <i>TEMNY SHOP</i> ✨\n\n"
+        "🖤 Магазин премиум-товаров и цифровых сервисов.\n"
+        "🔥 Всё быстро, безопасно и анонимно.\n\n"
+        "👇 Нажми на кнопку ниже, чтобы открыть магазин:"
+    )
+
+    await message.answer_photo(
+        photo=banner,
+        caption=caption,
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
+    )
+
+# ---------- ADMIN HANDLERS ----------
 @dp.message(Command("admin"))
 async def admin_command(message: Message, state: FSMContext):
     await message.answer("Введите логин администратора:")
@@ -261,7 +291,7 @@ async def show_admin_panel(message: Message):
     kb.adjust(1)
     await message.answer("🛠 Админ-панель:", reply_markup=kb.as_markup())
 
-# --- Добавление товара ---
+# --- Add / Edit / Delete products ---
 @dp.callback_query(lambda c: c.data == "add_product")
 async def start_add_product(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id not in admins:
@@ -294,7 +324,7 @@ async def step_category(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(f"✅ Товар <b>{data['name']}</b> успешно добавлен!", parse_mode="HTML")
 
-# --- Просмотр / редактирование / удаление ---
+# --- List / Delete / Edit products ---
 @dp.callback_query(lambda c: c.data == "list_products")
 async def list_products(callback: types.CallbackQuery):
     products = fetch_products_from_db()
@@ -343,13 +373,14 @@ async def save_new_price(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(f"✅ Цена товара <b>{name}</b> обновлена до {new_price}$", parse_mode="HTML")
 
-# --- Старт ---
+# --- Send product notification ---
 async def send_product(user_id: int, product_name: str):
     try:
         await bot.send_message(user_id, f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.", parse_mode="HTML")
     except Exception as e:
         print(f"Ошибка при отправке товара: {e}")
 
+# --- MAIN ---
 async def main():
     global bot_loop
     bot_loop = asyncio.get_running_loop()
