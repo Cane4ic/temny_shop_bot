@@ -94,15 +94,19 @@ function getUserId(){
   }
 }
 
+// Загружаем баланс с сервера и обновляем каждый раз
 async function loadBalance(){
   const user_id = getUserId();
   if(!user_id) return;
   try {
-    const res = await fetch(`/get_balance?user_id=${user_id}`);
+    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`); // добавляем timestamp, чтобы не кэшировалось
     const data = await res.json();
     if(data.balance !== undefined){
-      USER_BALANCE = parseFloat(data.balance) || 0;
-      document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+      const newBalance = parseFloat(data.balance) || 0;
+      if(newBalance !== USER_BALANCE){  // обновляем только если есть изменения
+        USER_BALANCE = newBalance;
+        document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+      }
     }
   } catch(e){
     console.error("Ошибка загрузки баланса:", e);
@@ -121,7 +125,7 @@ async function loadCatalog() {
         id: info.name,
         name: info.name,
         desc: `Остаток: ${info.stock}`,
-        price: `$${info.price}`
+        price: parseFloat(info.price) || 0 // храним как число
       });
     });
   } catch (err) {
@@ -156,7 +160,7 @@ function openCategory(key){
       <div class="pmeta">
         <div class="name">${p.name}</div>
         <div class="desc">${p.desc}</div>
-        <div class="price">${p.price}</div>
+        <div class="price">$${p.price.toFixed(2)}</div>
       </div>
       <div style="display:flex;align-items:center">
         <button style="padding:8px 12px;border-radius:10px;border:0;background:var(--btn-inner);color:var(--text);cursor:pointer" onclick="buy('${p.id}','${key}')">Купить</button>
@@ -175,8 +179,7 @@ async function buy(id, cat){
   const item = (catObj.items || []).find(x=>x.id===id);
   if(!item) return alert('Товар не найден');
 
-  const priceNumber = parseFloat(item.price.replace('$','')) || 0;
-  if(priceNumber > USER_BALANCE) return alert('❌ Недостаточно средств на балансе');
+  if(item.price > USER_BALANCE) return alert('❌ Недостаточно средств на балансе');
 
   const user_id = getUserId();
   if(!user_id) return alert('Не удалось получить пользователя');
@@ -188,14 +191,13 @@ async function buy(id, cat){
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         product_name: item.name,
-        price: priceNumber,
+        price: item.price,
         telegram_user_id: user_id
       })
     });
     const data = await res.json();
     if(data.status === 'ok'){
-      USER_BALANCE -= priceNumber;
-      document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+      await loadBalance(); // сразу обновляем баланс после покупки
       alert(`✅ Товар "${item.name}" успешно куплен!`);
       await loadCatalog();
       renderCategories();
@@ -211,12 +213,9 @@ async function buy(id, cat){
 }
 
 // Модалка пополнения
-function showDepositModal(){
-  document.getElementById('depositModal').style.display = 'flex';
-}
-function hideDepositModal(){
-  document.getElementById('depositModal').style.display = 'none';
-}
+function showDepositModal(){ document.getElementById('depositModal').style.display = 'flex'; }
+function hideDepositModal(){ document.getElementById('depositModal').style.display = 'none'; }
+
 async function submitDeposit(){
   const amount = parseFloat(document.getElementById('depositAmount').value);
   if(isNaN(amount) || amount <= 0) return alert('Введите корректную сумму');
@@ -233,7 +232,8 @@ async function submitDeposit(){
     });
     const data = await res.json();
     if(data.status==='ok'){
-      alert(`💰 Платёж на $${amount} создан. Оплата будет зафиксирована через CryptoBot.`);
+      alert(`💰 Платёж на $${amount} создан. Баланс обновится автоматически.`);
+      await loadBalance(); // сразу обновляем баланс
     } else {
       alert(`Ошибка: ${data.error}`);
     }
@@ -246,7 +246,9 @@ async function submitDeposit(){
 }
 
 function showView(name){
-  document.querySelectorAll('.view').forEach(v=>{v.style.display = (v.getAttribute('data-view')===name)?'flex':'none';});
+  document.querySelectorAll('.view').forEach(v=>{
+    v.style.display = (v.getAttribute('data-view')===name)?'flex':'none';
+  });
 }
 
 async function initWebApp(){
@@ -254,8 +256,7 @@ async function initWebApp(){
   renderCategories();
   await loadBalance();
   showView('menu');
-  // 🔁 Автообновление баланса каждые 2 секунды
-  setInterval(loadBalance, 2000);
+  setInterval(loadBalance, 2000); // автообновление баланса
 }
 
 initWebApp();
