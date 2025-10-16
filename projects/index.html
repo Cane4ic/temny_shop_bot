@@ -6,17 +6,17 @@
 <title>TEMNY SHOP — WebApp</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#000;--panel:#0b0b0b;--glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);--accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);--text:#fff;--muted: rgba(255,255,255,0.55);--btn-inner: rgba(255,255,255,0.03);}
+  :root{--bg:#000;--panel:#0b0b0b;--glow:0 8px 30px rgba(255,255,255,0.06),0 2px 6px rgba(0,0,0,0.6);--accent:linear-gradient(90deg,#ff7aa7,#ffb0d6);--text:#fff;--muted:rgba(255,255,255,0.55);--btn-inner:rgba(255,255,255,0.03);}
   *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--text);font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;display:flex;align-items:center;justify-content:center;padding:12px;}
   .app{width:100%;max-width:420px;height:100vh;display:flex;flex-direction:column;gap:14px;align-items:stretch;}
   .header{text-align:center;margin-top:6vh;}
   .title{font-family: "Cinzel Decorative", serif;font-size:38px;letter-spacing:2px;color:#fff;text-shadow: 0 2px 0 rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.7);margin:0;}
   .subtitle{margin-top:10px;font-size:16px;line-height:1.25;color:var(--muted);font-weight:300;text-transform:uppercase;letter-spacing:2px;}
   .balance{margin-top:8px;font-size:16px;color:#ffb0d6;font-weight:600;}
-  .menu{padding: 18px 12px;display:flex;flex-direction:column;gap:18px;align-items:stretch;flex:0 0 auto;}
-  .big-btn{background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.35));border-radius:18px;padding:14px 14px;display:flex;align-items:center;gap:14px;box-shadow: 0 0 0 3px rgba(255,255,255,0.03), 0 18px 40px rgba(0,0,0,0.7), 0 6px 20px rgba(0,0,0,0.6);border: 1px solid rgba(255,255,255,0.04);cursor:pointer;transition: transform .14s ease, box-shadow .14s ease;position:relative;overflow:hidden;}
-  .big-btn:before{content:"";position:absolute;inset:-6px;border-radius:22px;box-shadow: 0 0 30px rgba(255,255,255,0.06);pointer-events:none;opacity:0.9;mix-blend-mode:screen;}
-  .big-btn:hover{ transform:translateY(-4px); box-shadow: 0 28px 60px rgba(0,0,0,0.8); }
+  .menu{padding: 18px 12px;display:flex;flex-direction:column;gap:12px;align-items:stretch;flex:0 0 auto;}
+  .big-btn{background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.35));border-radius:18px;padding:14px 14px;display:flex;align-items:center;gap:14px;box-shadow: 0 0 0 3px rgba(255,255,255,0.03),0 18px 40px rgba(0,0,0,0.7),0 6px 20px rgba(0,0,0,0.6);border: 1px solid rgba(255,255,255,0.04);cursor:pointer;transition: transform .14s ease, box-shadow .14s ease;position:relative;overflow:hidden;}
+  .big-btn:before{content:"";position:absolute;inset:-6px;border-radius:22px;box-shadow:0 0 30px rgba(255,255,255,0.06);pointer-events:none;opacity:0.9;mix-blend-mode:screen;}
+  .big-btn:hover{ transform:translateY(-4px); box-shadow:0 28px 60px rgba(0,0,0,0.8);}
   .icon-wrap{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,#0f0f10,#19191c);display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);}
   .btn-label{flex:1;font-weight:700;font-size:20px;letter-spacing:1px;color:#fff;text-shadow: 0 1px 0 rgba(0,0,0,0.6);}
   .chev{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:18px;}
@@ -33,6 +33,10 @@
   .pmeta .desc{font-size:12px;color:var(--muted);margin-top:6px}
   .pmeta .price{font-size:14px;font-weight:700;color:#fff;margin-top:6px}
   .spacer{height:8vh;flex:0 0 auto}
+  .modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999;display:none;}
+  .modal-content{background:#0b0b0b;padding:20px;border-radius:14px;width:90%;max-width:300px;text-align:center;}
+  .modal-content input{width:100%;padding:10px;border-radius:10px;border:1px solid #222;background:#000;color:#fff;margin-bottom:12px;font-size:16px;}
+  .modal-content button{padding:10px 20px;border-radius:10px;border:0;background:var(--accent);color:#000;font-weight:700;cursor:pointer;font-size:16px;}
   @media (max-width:380px){.title{font-size:34px}.big-btn{padding:12px}.icon-wrap{width:48px;height:48px}.btn-label{font-size:18px}}
 </style>
 </head>
@@ -45,6 +49,13 @@
       <div class="balance" id="userBalance">Баланс: $0</div>
     </div>
     <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
+    <div class="menu">
+      <div class="big-btn" onclick="showDepositModal()">
+        <div class="icon-wrap">💰</div>
+        <div class="btn-label">Пополнить баланс</div>
+        <div class="chev">˅</div>
+      </div>
+    </div>
     <div class="spacer"></div>
   </div>
 
@@ -60,11 +71,18 @@
   </div>
 </div>
 
+<div class="modal" id="depositModal">
+  <div class="modal-content">
+    <h3>Пополнить баланс</h3>
+    <input type="number" id="depositAmount" placeholder="Сумма в $" min="1">
+    <button onclick="submitDeposit()">Перейти к оплате</button>
+  </div>
+</div>
+
 <script>
 let CATALOG = {}; 
 let USER_BALANCE = 0;
 
-// Получение ID пользователя
 function getUserId(){
   try{
     return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
@@ -74,7 +92,6 @@ function getUserId(){
   }
 }
 
-// Загружаем баланс пользователя
 async function loadBalance(){
   const user_id = getUserId();
   if(!user_id) return;
@@ -90,7 +107,6 @@ async function loadBalance(){
   }
 }
 
-// 🔥 Загружаем каталог товаров из базы через Flask API
 async function loadCatalog() {
   try {
     const res = await fetch("/products");
@@ -111,7 +127,6 @@ async function loadCatalog() {
   }
 }
 
-// Отображаем категории
 function renderCategories(){
   const menu = document.getElementById('menuCategories');
   menu.innerHTML = '';
@@ -119,17 +134,12 @@ function renderCategories(){
     const div = document.createElement('div');
     div.className = 'big-btn';
     div.dataset.target = key;
-    div.innerHTML = `
-      <div class="icon-wrap">✦</div>
-      <div class="btn-label">${cat.title}</div>
-      <div class="chev">˅</div>
-    `;
+    div.innerHTML = `<div class="icon-wrap">✦</div><div class="btn-label">${cat.title}</div><div class="chev">˅</div>`;
     div.onclick = ()=>openCategory(key);
     menu.appendChild(div);
   }
 }
 
-// Открываем категорию
 function openCategory(key){
   const cat = CATALOG[key];
   if(!cat) return;
@@ -158,7 +168,6 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
-// Покупка товара
 async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
@@ -199,25 +208,54 @@ async function buy(id, cat){
   }
 }
 
-// Переключение видов
-function showView(name){
-  document.querySelectorAll('.view').forEach(v=>{
-    v.style.display = (v.getAttribute('data-view')===name) ? 'flex' : 'none';
-  });
+// Модалка пополнения
+function showDepositModal(){
+  document.getElementById('depositModal').style.display = 'flex';
+}
+function hideDepositModal(){
+  document.getElementById('depositModal').style.display = 'none';
+}
+async function submitDeposit(){
+  const amount = parseFloat(document.getElementById('depositAmount').value);
+  if(isNaN(amount) || amount <= 0) return alert('Введите корректную сумму');
+  const user_id = getUserId();
+  if(!user_id) return alert('Не удалось получить пользователя');
+
+  hideDepositModal();
+  document.body.style.cursor = 'wait';
+  try{
+    const res = await fetch('/create_deposit', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({telegram_user_id:user_id, amount:amount})
+    });
+    const data = await res.json();
+    if(data.status==='ok'){
+      alert(`💰 Платёж на $${amount} создан. Оплата будет зафиксирована через CryptoBot.`);
+    } else {
+      alert(`Ошибка: ${data.error}`);
+    }
+  }catch(e){
+    console.error(e);
+    alert('Ошибка создания платежа');
+  }finally{
+    document.body.style.cursor = 'default';
+  }
 }
 
-// Инициализация
+function showView(name){
+  document.querySelectorAll('.view').forEach(v=>{v.style.display = (v.getAttribute('data-view')===name)?'flex':'none';});
+}
+
 async function initWebApp(){
   await loadCatalog();
   renderCategories();
   await loadBalance();
   showView('menu');
-  // Автообновление баланса каждые 5 секунд
-  setInterval(loadBalance, 5000);
+  setInterval(loadBalance,5000);
 }
 
 initWebApp();
-
 try{
   if(window.Telegram && window.Telegram.WebApp){
     window.Telegram.WebApp.ready();
@@ -225,6 +263,5 @@ try{
   }
 }catch(e){}
 </script>
-
 </body>
 </html>
