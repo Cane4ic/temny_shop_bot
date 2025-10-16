@@ -6,8 +6,7 @@
 <title>TEMNY SHOP — WebApp</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-  /* стили остаются как в твоем коде */
-  :root{--bg:#000;--panel:#0b0b0b;--glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);--accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);--text:#ffffff;--muted: rgba(255,255,255,0.55);--btn-inner: rgba(255,255,255,0.03);}
+  :root{--bg:#000;--panel:#0b0b0b;--glow: 0 8px 30px rgba(255,255,255,0.06), 0 2px 6px rgba(0,0,0,0.6);--accent: linear-gradient(90deg,#ff7aa7,#ffb0d6);--text:#fff;--muted: rgba(255,255,255,0.55);--btn-inner: rgba(255,255,255,0.03);}
   *{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--text);font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;display:flex;align-items:center;justify-content:center;padding:12px;}
   .app{width:100%;max-width:420px;height:100vh;display:flex;flex-direction:column;gap:14px;align-items:stretch;}
   .header{text-align:center;margin-top:6vh;}
@@ -65,17 +64,20 @@
 let CATALOG = {}; 
 let USER_BALANCE = 0;
 
-// Загружаем баланс пользователя
-async function loadBalance(){
-  let user_id;
+// Получение ID пользователя
+function getUserId(){
   try{
-    user_id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    if(!user_id) throw new Error("Пользователь не определён");
+    return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 0;
   } catch(e){
     console.warn("Telegram WebApp не готов:", e);
-    return;
+    return 0;
   }
+}
 
+// Загружаем баланс пользователя
+async function loadBalance(){
+  const user_id = getUserId();
+  if(!user_id) return;
   try {
     const res = await fetch(`/get_balance?user_id=${user_id}`);
     const data = await res.json();
@@ -93,21 +95,17 @@ async function loadCatalog() {
   try {
     const res = await fetch("/products");
     const data = await res.json();
-
-    // data = { "ProductName": { price, stock, category } }
     CATALOG = {};
-
-    Object.entries(data).forEach(([name, info]) => {
+    data.forEach(info => {
       const cat = info.category || "Other";
       if(!CATALOG[cat]) CATALOG[cat] = { title: cat.toUpperCase(), items: [] };
       CATALOG[cat].items.push({
-        id: name,
-        name: name,
+        id: info.name,
+        name: info.name,
         desc: `Остаток: ${info.stock}`,
         price: `$${info.price}`
       });
     });
-
   } catch (err) {
     console.error("Ошибка загрузки товаров:", err);
   }
@@ -167,14 +165,12 @@ async function buy(id, cat){
   if(!item) return alert('Товар не найден');
 
   const priceNumber = parseFloat(item.price.replace('$','')) || 0;
+  if(priceNumber > USER_BALANCE) return alert('❌ Недостаточно средств на балансе');
 
-  if(priceNumber > USER_BALANCE){
-    return alert('❌ Недостаточно средств на балансе');
-  }
+  const user_id = getUserId();
+  if(!user_id) return alert('Не удалось получить пользователя');
 
-  let user_id;
-  try{ user_id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id; }catch(e){return alert('Не удалось получить пользователя');}
-
+  document.body.style.cursor = 'wait';
   try {
     const res = await fetch('/buy_product', {
       method: 'POST',
@@ -190,7 +186,7 @@ async function buy(id, cat){
       USER_BALANCE -= priceNumber;
       document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
       alert(`✅ Товар "${item.name}" успешно куплен!`);
-      await loadCatalog(); // обновляем каталог
+      await loadCatalog();
       renderCategories();
     } else {
       alert(`❌ ${data.error}`);
@@ -198,6 +194,8 @@ async function buy(id, cat){
   } catch(e) {
     console.error(e);
     alert('Ошибка при покупке');
+  } finally {
+    document.body.style.cursor = 'default';
   }
 }
 
@@ -214,6 +212,8 @@ async function initWebApp(){
   renderCategories();
   await loadBalance();
   showView('menu');
+  // Автообновление баланса каждые 5 секунд
+  setInterval(loadBalance, 5000);
 }
 
 initWebApp();
