@@ -14,7 +14,6 @@
   .header{text-align:center;margin-top:6vh;}
   .title{font-family:"Cinzel Decorative",serif;font-size:38px;letter-spacing:2px;color:#fff;text-shadow:0 2px 0 rgba(255,255,255,0.06),0 10px 30px rgba(0,0,0,0.7);margin:0;}
   .subtitle{margin-top:10px;font-size:16px;line-height:1.25;color:var(--muted);font-weight:300;text-transform:uppercase;letter-spacing:2px;}
-  .balance{margin-top:8px;font-size:16px;color:#ffb0d6;font-weight:600;}
   .menu{padding:18px 12px;display:flex;flex-direction:column;gap:12px;align-items:stretch;flex:0 0 auto;}
   .big-btn{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.35));border-radius:18px;padding:14px 14px;display:flex;align-items:center;gap:14px;box-shadow:0 0 0 3px rgba(255,255,255,0.03),0 18px 40px rgba(0,0,0,0.7),0 6px 20px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:transform .14s ease,box-shadow .14s ease;position:relative;overflow:hidden;}
   .big-btn:before{content:"";position:absolute;inset:-6px;border-radius:22px;box-shadow:0 0 30px rgba(255,255,255,0.06);pointer-events:none;opacity:0.9;mix-blend-mode:screen;}
@@ -35,45 +34,39 @@
   .pmeta .desc{font-size:12px;color:var(--muted);margin-top:6px}
   .pmeta .price{font-size:14px;font-weight:700;color:#fff;margin-top:6px}
   .spacer{height:8vh;flex:0 0 auto}
-  .modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999;display:none;}
+  .modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:999;display:none;opacity:0;transition:opacity 0.2s;}
+  .modal.show{display:flex;opacity:1;}
   .modal-content{background:#0b0b0b;padding:20px;border-radius:14px;width:90%;max-width:300px;text-align:center;}
   .modal-content input{width:100%;padding:10px;border-radius:10px;border:1px solid #222;background:#000;color:#fff;margin-bottom:12px;font-size:16px;}
   .modal-content button{padding:10px 20px;border-radius:10px;border:0;background:var(--accent);color:#000;font-weight:700;cursor:pointer;font-size:16px;}
   @media (max-width:380px){.title{font-size:34px}.big-btn{padding:12px}.icon-wrap{width:48px;height:48px}.btn-label{font-size:18px}}
 
-  /* Футер */
+  /* Минималистичный футер */
   .footer {
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100%;
     max-width: 420px;
-    background: var(--panel);
+    background: transparent;
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    justify-content: center;
+    padding: 6px 0;
     z-index: 10;
   }
-  .footer-line {
-    height: 1px;
-    background: rgba(255,255,255,0.2);
-    margin: 0 12px;
-  }
-  .footer-content {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 12px;
-  }
   .footer-btn {
-    font-size: 24px;
+    font-size: 28px;
     cursor: pointer;
     padding: 8px;
     border-radius: 10px;
     transition: background 0.2s;
   }
-  .footer-btn:hover {
-    background: rgba(255,255,255,0.05);
-  }
+  .footer-btn:hover { background: rgba(255,255,255,0.05); }
+
+  /* Стиль страницы профиля */
+  .profile-page{padding: 24px;display:flex;flex-direction:column;gap:16px;align-items:center;}
+  .profile-item{font-size:16px;font-weight:500;color:#fff;}
+  .profile-balance{font-size:20px;font-weight:700;color:#ffb0d6;}
 </style>
 </head>
 <body>
@@ -82,16 +75,8 @@
     <div class="header">
       <h1 class="title">TEMNY SHOP</h1>
       <div class="subtitle">Добро пожаловать в<br>Лучший магазин аккаунтов<br>для арбитража трафика</div>
-      <div class="balance" id="userBalance">Баланс: $0</div>
     </div>
     <div class="menu" id="menuCategories" role="navigation" aria-label="Категории"></div>
-    <div class="menu">
-      <div class="big-btn" onclick="showDepositModal()">
-        <div class="icon-wrap">💰</div>
-        <div class="btn-label">Пополнить баланс</div>
-        <div class="chev">˅</div>
-      </div>
-    </div>
     <div class="spacer"></div>
   </div>
 
@@ -105,9 +90,23 @@
     </div>
     <div style="height:6vh"></div>
   </div>
+
+  <div class="view" data-view="profile" style="display:none">
+    <div class="backbar">
+      <div class="backbtn" onclick="goBack()" aria-label="Назад">←</div>
+      <div class="page-title">Профиль</div>
+    </div>
+    <div class="profile-page">
+      <div class="profile-item">ID пользователя: <span id="profileId">0</span></div>
+      <div class="profile-item">Баланс: $<span id="profileBalance">0</span></div>
+      <div class="big-btn" onclick="showDepositModal()">
+        <div class="icon-wrap">💰</div>
+        <div class="btn-label">Пополнить баланс</div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Модальное окно пополнения -->
 <div class="modal" id="depositModal">
   <div class="modal-content">
     <h3>Пополнить баланс</h3>
@@ -116,18 +115,14 @@
   </div>
 </div>
 
-<!-- Футер -->
 <div class="footer">
-  <div class="footer-line"></div>
-  <div class="footer-content">
-    <div class="footer-btn" onclick="openCart()">🛒</div>
-    <div class="footer-btn" onclick="openProfile()">👤</div>
-  </div>
+  <div class="footer-btn" onclick="openProfile()">👤</div>
 </div>
 
 <script>
 let CATALOG = {};
 let USER_BALANCE = 0;
+let USER_ID = 0;
 
 async function getUserId(){
   if(!window.Telegram || !window.Telegram.WebApp) return 0;
@@ -141,22 +136,19 @@ async function getUserId(){
 }
 
 async function loadBalance(){
-  const user_id = await getUserId();
-  if(!user_id) return;
+  if(!USER_ID) return;
   try {
-    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`, { cache: "no-store" });
+    const res = await fetch(`/get_balance?user_id=${USER_ID}&_=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
     if(data.balance !== undefined){
       const newBalance = parseFloat(data.balance) || 0;
       if(newBalance !== USER_BALANCE){
         USER_BALANCE = newBalance;
-        document.getElementById('userBalance').textContent = `Баланс: $${USER_BALANCE.toFixed(2)}`;
+        document.getElementById('profileBalance').textContent = USER_BALANCE.toFixed(2);
         updateBuyButtons();
       }
     }
-  } catch(e){
-    console.error("Ошибка загрузки баланса:", e);
-  }
+  } catch(e){ console.error("Ошибка загрузки баланса:", e); }
 }
 
 async function loadCatalog() {
@@ -175,9 +167,7 @@ async function loadCatalog() {
         stock: info.stock
       });
     });
-  } catch (err) {
-    console.error("Ошибка загрузки товаров:", err);
-  }
+  } catch (err) { console.error("Ошибка загрузки товаров:", err); }
 }
 
 function renderCategories(){
@@ -236,18 +226,14 @@ async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
   if(!item) return alert('Товар не найден');
-
   if(item.price > USER_BALANCE) return alert('❌ Недостаточно средств на балансе');
-
-  const user_id = await getUserId();
-  if(!user_id) return alert('Не удалось получить пользователя');
 
   document.body.style.cursor = 'wait';
   try {
     const res = await fetch('/buy_product', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ product_name: item.name, price: item.price, telegram_user_id: user_id })
+      body: JSON.stringify({ product_name: item.name, price: item.price, telegram_user_id: USER_ID })
     });
     const data = await res.json();
     if(data.status === 'ok'){
@@ -255,25 +241,18 @@ async function buy(id, cat){
       alert(`✅ Товар "${item.name}" успешно куплен!`);
       await loadCatalog();
       renderCategories();
-    } else {
-      alert(`❌ ${data.error}`);
-    }
-  } catch(e) {
-    console.error(e);
-    alert('Ошибка при покупке');
-  } finally {
-    document.body.style.cursor = 'default';
-  }
+    } else { alert(`❌ ${data.error}`); }
+  } catch(e){ console.error(e); alert('Ошибка при покупке'); }
+  finally{ document.body.style.cursor = 'default'; }
 }
 
-function showDepositModal(){ document.getElementById('depositModal').style.display = 'flex'; }
-function hideDepositModal(){ document.getElementById('depositModal').style.display = 'none'; }
+function showDepositModal(){ document.getElementById('depositModal').classList.add('show'); }
+function hideDepositModal(){ document.getElementById('depositModal').classList.remove('show'); }
 
 async function submitDeposit(){
   const amount = parseFloat(document.getElementById('depositAmount').value);
   if(isNaN(amount) || amount <= 0) return alert('Введите корректную сумму');
-  const user_id = await getUserId();
-  if(!user_id) return alert('Не удалось получить пользователя');
+  if(!USER_ID) return alert('Не удалось получить пользователя');
 
   hideDepositModal();
   document.body.style.cursor = 'wait';
@@ -281,37 +260,35 @@ async function submitDeposit(){
     const res = await fetch('/create_deposit', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({telegram_user_id:user_id, amount:amount})
+      body: JSON.stringify({telegram_user_id:USER_ID, amount:amount})
     });
     const data = await res.json();
     if(data.status==='ok'){
       await loadBalance();
       alert(`💰 Платёж на $${amount} создан. Баланс обновится автоматически.`);
-    } else {
-      alert(`Ошибка: ${data.error}`);
-    }
-  }catch(e){
-    console.error(e);
-    alert('Ошибка создания платежа');
-  }finally{
-    document.body.style.cursor = 'default';
-  }
+    } else { alert(`Ошибка: ${data.error}`); }
+  }catch(e){ console.error(e); alert('Ошибка создания платежа'); }
+  finally{ document.body.style.cursor = 'default'; }
 }
 
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>{ v.style.display = (v.getAttribute('data-view')===name)?'flex':'none'; });
 }
 
+function openProfile(){
+  document.getElementById('profileId').textContent = USER_ID;
+  document.getElementById('profileBalance').textContent = USER_BALANCE.toFixed(2);
+  showView('profile');
+}
+
 async function initWebApp(){
+  USER_ID = await getUserId();
   await loadCatalog();
   renderCategories();
   await loadBalance();
   showView('menu');
   setInterval(loadBalance, 2000);
 }
-
-function openCart(){ alert('Открыть корзину'); }
-function openProfile(){ alert('Открыть профиль'); }
 
 initWebApp();
 
