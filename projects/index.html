@@ -85,24 +85,24 @@
 let CATALOG = {};
 let USER_BALANCE = 0;
 
-// Асинхронное получение user_id из Telegram WebApp
+// Получаем корректный user_id
 async function getUserId(){
   if(!window.Telegram || !window.Telegram.WebApp) return 0;
   try {
     window.Telegram.WebApp.ready();
-    return window.Telegram.WebApp.initDataUnsafe?.user?.id || 0;
+    return window.Telegram.WebApp.initData?.user?.id || window.Telegram.WebApp.initDataUnsafe?.user?.id || 0;
   } catch(e){
     console.warn("Telegram WebApp не готов:", e);
     return 0;
   }
 }
 
-// Баланс
+// Обновляем баланс с сервера
 async function loadBalance(){
   const user_id = await getUserId();
   if(!user_id) return;
   try {
-    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`);
+    const res = await fetch(`/get_balance?user_id=${user_id}&_=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
     if(data.balance !== undefined){
       const newBalance = parseFloat(data.balance) || 0;
@@ -180,7 +180,7 @@ function openCategory(key){
 
 function goBack(){ showView('menu'); }
 
-// Покупка
+// Покупка товара
 async function buy(id, cat){
   const catObj = CATALOG[cat];
   const item = (catObj.items || []).find(x=>x.id===id);
@@ -204,7 +204,7 @@ async function buy(id, cat){
     });
     const data = await res.json();
     if(data.status === 'ok'){
-      await loadBalance();
+      await loadBalance();  // обновляем баланс сразу
       alert(`✅ Товар "${item.name}" успешно куплен!`);
       await loadCatalog();
       renderCategories();
@@ -239,8 +239,8 @@ async function submitDeposit(){
     });
     const data = await res.json();
     if(data.status==='ok'){
+      await loadBalance(); // баланс обновляется сразу
       alert(`💰 Платёж на $${amount} создан. Баланс обновится автоматически.`);
-      await loadBalance();
     } else {
       alert(`Ошибка: ${data.error}`);
     }
@@ -263,7 +263,7 @@ async function initWebApp(){
   renderCategories();
   await loadBalance();
   showView('menu');
-  setInterval(loadBalance, 2000);
+  setInterval(loadBalance, 2000); // поддержка обновления баланса
 }
 
 initWebApp();
