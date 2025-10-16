@@ -53,6 +53,17 @@ def init_db():
             balance REAL DEFAULT 0
         );
     """)
+    # Новая таблица accounts: хранит отдельные аккаунты для каждого товара
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id SERIAL PRIMARY KEY,
+            product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+            login TEXT NOT NULL,
+            password TEXT NOT NULL,
+            used BOOLEAN DEFAULT FALSE,
+            added_at TIMESTAMP DEFAULT now()
+        );
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -70,7 +81,7 @@ def fetch_products_from_db():
 def add_product_to_db(name, price, stock, category):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO products (name, price, stock, category) VALUES (%s, %s, %s, %s);",
+    cur.execute("INSERT INTO products (name, price, stock, category) VALUES (%s, %s, %s, %s) ON CONFLICT (name) DO UPDATE SET price = EXCLUDED.price, stock = EXCLUDED.stock, category = EXCLUDED.category;",
                 (name, price, stock, category))
     conn.commit()
     cur.close()
@@ -115,6 +126,87 @@ def update_user_balance(user_id: int, new_balance):
     cur.close()
     conn.close()
 
+# ---------- Accounts helpers ----------
+def add_accounts_to_db(product_name: str, accounts: list):
+    """
+    accounts: list of tuples (login, password)
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # Получаем product_id
+    cur.execute("SELECT id FROM products WHERE name = %s;", (product_name,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise ValueError("Product not found")
+    product_id = row['id']
+    # Вставляем аккаунты
+    for login, password in accounts:
+        cur.execute("INSERT INTO accounts (product_id, login, password, used) VALUES (%s, %s, %s, FALSE);",
+                    (product_id, login, password))
+    # Обновим stock: установим stock = count of unused accounts (или +N)
+    cur.execute("UPDATE products SET stock = (SELECT COUNT(*) FROM accounts WHERE product_id = products.id AND used = FALSE) WHERE id = %s;", (product_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def fetch_and_mark_account(product_name: str):
+    """
+    Атомарно выбирает один неиспользованный аккаунт для данного товара,
+    помечает его как used и возвращает (login, password).
+    Использует транзакцию и SELECT ... FOR UPDATE SKIP LOCKED, чтобы избежать race.
+    Возвращает None если аккаунтов нет.
+    """
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Получаем product_id
+        cur.execute("SELECT id FROM products WHERE name = %s FOR SHARE;", (product_name,))
+        prod = cur.fetchone()
+        if not prod:
+            cur.close()
+            conn.close()
+            return None
+        product_id = prod['id']
+
+        # Начинаем транзакцию: выбираем случайный доступный аккаунт и блокируем его
+        # (обход конкурентных выборок — SKIP LOCKED)
+        cur.execute("""
+            SELECT id, login, password FROM accounts
+            WHERE product_id = %s AND used = FALSE
+            ORDER BY random()
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1;
+        """, (product_id,))
+        acc = cur.fetchone()
+        if not acc:
+            cur.close()
+            conn.commit()
+            conn.close()
+            return None
+
+        account_id = acc['id']
+        login = acc['login']
+        password = acc['password']
+
+        # Помечаем аккаунт как использованный
+        cur.execute("UPDATE accounts SET used = TRUE WHERE id = %s;", (account_id,))
+
+        # Уменьшаем stock у товара (гарантируем неотрицательное)
+        cur.execute("UPDATE products SET stock = GREATEST(stock - 1, 0) WHERE id = %s;", (product_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"login": login, "password": password}
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        print(f"[DB ERROR fetch_and_mark_account] {e}")
+        return None
+
 # ---------- FLASK ----------
 app = Flask(__name__)
 bot_loop = None
@@ -154,23 +246,45 @@ def buy_product():
     if current_balance < price:
         return jsonify({"status": "error", "error": "Недостаточно средств"}), 400
 
-    future = asyncio.run_coroutine_threadsafe(send_product(user_id, product_name), bot_loop)
+    # Попытаемся получить аккаунт из базы для этого товара
+    account = fetch_and_mark_account(product_name)
+    if not account:
+        return jsonify({"status": "error", "error": "Нет доступных аккаунтов для данного товара"}), 400
+
+    # Отправляем аккаунт через бота (асинхронно в loop)
+    future = asyncio.run_coroutine_threadsafe(send_product(user_id, product_name, account), bot_loop)
     try:
-        future.result(timeout=5)
+        future.result(timeout=10)
     except Exception as e:
         print(f"Error sending product notification: {e}")
+        # В случае ошибки отправки — можно вернуть аккаунт обратно (optional)
+        # Но проще: сообщим об ошибке и оставим аккаунт помеченным. Можно реализовать rollback при необходимости.
         return jsonify({"status": "error", "error": "Failed to send notification"}), 500
 
+    # Списываем деньги у пользователя
     update_user_balance(user_id, current_balance - price)
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE products SET stock = GREATEST(stock - 1, 0) WHERE name = %s;", (product_name,))
-    conn.commit()
-    cur.close()
-    conn.close()
-
     return jsonify({"status": "ok"})
+
+# Новый endpoint для админа — загрузить аккаунты в базу (можешь вызвать через curl или admin-бот)
+@app.route("/admin/add_accounts", methods=["POST"])
+def admin_add_accounts():
+    data = request.json
+    product_name = data.get("product_name")
+    accounts_text = data.get("accounts_text")  # строки "email:password\n..."
+    if not product_name or not accounts_text:
+        return jsonify({"status": "error", "error": "Missing fields"}), 400
+    lines = [l.strip() for l in accounts_text.splitlines() if l.strip()]
+    accounts = []
+    for line in lines:
+        if ":" in line:
+            login, password = line.split(":", 1)
+            accounts.append((login.strip(), password.strip()))
+    try:
+        add_accounts_to_db(product_name, accounts)
+        return jsonify({"status": "ok", "added": len(accounts)})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
@@ -206,6 +320,11 @@ class TopUpUser(StatesGroup):
     select_user = State()
     enter_amount = State()
 
+# Новый FSM для загрузки аккаунтов
+class UploadAccounts(StatesGroup):
+    select_product = State()
+    accounts_text = State()
+
 # ---------- HANDLERS ----------
 @dp.message(Command("start"))
 async def start(message: Message):
@@ -220,10 +339,10 @@ async def start(message: Message):
     conn.close()
 
     kb = InlineKeyboardBuilder()
-    user_id = message.from_user.id  # ✅ добавлено
+    user_id = message.from_user.id
     kb.button(
         text="🛍 Открыть TEMNY SHOP",
-        web_app=WebAppInfo(url=f"{WEBAPP_URL}?user_id={user_id}")  # ✅ передаём user_id в URL
+        web_app=WebAppInfo(url=f"{WEBAPP_URL}?user_id={user_id}")
     )
     kb.adjust(1)
 
@@ -269,6 +388,7 @@ async def process_password(message: Message, state: FSMContext):
         kb.button(text="❌ Удалить товар", callback_data="delete_product")
         kb.button(text="📦 Просмотреть товары", callback_data="list_products")
         kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
+        kb.button(text="⬆️ Загрузить аккаунты к товару", callback_data="upload_accounts")  # новая кнопка
         kb.adjust(1)
         await message.answer("Выберите действие:", reply_markup=kb.as_markup())
     else:
@@ -306,40 +426,193 @@ async def user_balances_cb(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(text)
     await state.set_state(TopUpUser.select_user)
 
-@dp.message(StateFilter(TopUpUser.select_user))
-async def select_user_to_topup(message: Message, state: FSMContext):
-    try:
-        user_id = int(message.text.strip())
-        await state.update_data(selected_user_id=user_id)
-        await message.answer(f"Введите сумму для пополнения баланса пользователя {user_id}:")
-        await state.set_state(TopUpUser.enter_amount)
-    except ValueError:
-        await message.answer("❌ Введите корректный ID пользователя.")
+# Загрузить аккаунты к товару (через бота)
+@dp.callback_query(lambda c: c.data == "upload_accounts")
+async def upload_accounts_cb(callback: types.CallbackQuery, state: FSMContext):
+    products = fetch_products_from_db()
+    if not products:
+        await callback.message.answer("Список товаров пуст. Сначала добавьте товар.")
+        return
+    text = "Введите название товара, к которому хотите загрузить аккаунты:\n\n"
+    for p in products:
+        text += f"• {p['name']} | Остаток: {p['stock']}\n"
+    await callback.message.answer(text)
+    await state.set_state(UploadAccounts.select_product)
 
-@dp.message(StateFilter(TopUpUser.enter_amount))
-async def enter_topup_amount(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text.strip())
+@dp.message(StateFilter(UploadAccounts.select_product))
+async def upload_accounts_select_product(message: Message, state: FSMContext):
+    product_name = message.text.strip()
+    products = fetch_products_from_db()
+    if not any(p['name'] == product_name for p in products):
+        await message.answer("❌ Товар с таким названием не найден. Попробуйте снова.")
+        return
+    await state.update_data(product_name=product_name)
+    await message.answer("Теперь пришлите список аккаунтов в формате `email:password` построчно. Отправьте `Готово` когда закончите.")
+    await state.set_state(UploadAccounts.accounts_text)
+
+@dp.message(StateFilter(UploadAccounts.accounts_text))
+async def upload_accounts_receive(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if text.lower() == "готово":
         data = await state.get_data()
-        user_id = data["selected_user_id"]
-        current_balance = get_user_balance(user_id)
-        new_balance = current_balance + amount
-        update_user_balance(user_id, new_balance)
-        await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${new_balance}")
+        accounts_text = data.get("accounts_text_raw", "")
+        product_name = data.get("product_name")
+        if not accounts_text:
+            await message.answer("❌ Список аккаунтов пуст. Операция отменена.")
+            await state.clear()
+            return
+        lines = [l.strip() for l in accounts_text.splitlines() if l.strip()]
+        accounts = []
+        for line in lines:
+            if ":" in line:
+                login, password = line.split(":", 1)
+                accounts.append((login.strip(), password.strip()))
+        try:
+            add_accounts_to_db(product_name, accounts)
+            await message.answer(f"✅ Добавлено {len(accounts)} аккаунтов к товару {product_name}.")
+        except Exception as e:
+            await message.answer(f"❌ Ошибка при добавлении: {e}")
         await state.clear()
-    except ValueError:
-        await message.answer("❌ Введите корректную сумму.")
+        return
 
-# ---------- ADD / EDIT / DELETE PRODUCT ----------
-# (остальные обработчики остаются без изменений)
-# ... (они идентичны твоей версии)
+    # Накопление многстрочного текста (пользователь может слать много сообщений)
+    data = await state.get_data()
+    prev = data.get("accounts_text_raw", "")
+    new_val = prev + ("\n" if prev else "") + text
+    await state.update_data(accounts_text_raw=new_val)
+    await message.answer("Добавлено. Пришлите ещё строки или отправьте `Готово`, чтобы завершить.")
+
+# ---------- TOP UP, ADD, EDIT, DELETE PRODUCT (как было) ----------
+@dp.callback_query(lambda c: c.data == "add_product")
+async def add_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AddProduct.name)
+    await callback.message.answer("Введите название товара:")
+
+@dp.message(StateFilter(AddProduct.name))
+async def add_product_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await message.answer("Введите цену товара:")
+    await state.set_state(AddProduct.price)
+
+@dp.message(StateFilter(AddProduct.price))
+async def add_product_price(message: Message, state: FSMContext):
+    await state.update_data(price=float(message.text.strip()))
+    await message.answer("Введите количество на складе (это значение будет перезаписано количеством неиспользованных аккаунтов, если вы загрузите их):")
+    await state.set_state(AddProduct.stock)
+
+@dp.message(StateFilter(AddProduct.stock))
+async def add_product_stock(message: Message, state: FSMContext):
+    await state.update_data(stock=int(message.text.strip()))
+    await message.answer("Введите категорию товара:")
+    await state.set_state(AddProduct.category)
+
+@dp.message(StateFilter(AddProduct.category))
+async def add_product_category(message: Message, state: FSMContext):
+    data = await state.get_data()
+    category = message.text.strip()
+    # stock может быть перезаписан позднее при загрузке аккаунтов
+    add_product_to_db(data['name'], data['price'], data['stock'], category)
+    await message.answer(f"✅ Товар {data['name']} добавлен! Чтобы загрузить аккаунты к товару, используйте кнопку '⬆️ Загрузить аккаунты к товару'.")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "edit_product")
+async def edit_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    products = fetch_products_from_db()
+    if not products:
+        await callback.message.answer("Список товаров пуст. Нечего редактировать.")
+        return
+    await state.set_state(EditProduct.select_product)
+    text = "Введите название товара, который хотите редактировать:\n\n"
+    for p in products:
+        text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
+    await callback.message.answer(text)
+
+@dp.message(StateFilter(EditProduct.select_product))
+async def edit_product_select(message: Message, state: FSMContext):
+    product_name = message.text.strip()
+    products = fetch_products_from_db()
+    if not any(p['name'] == product_name for p in products):
+        await message.answer("❌ Товар с таким названием не найден. Попробуйте снова.")
+        return
+    await state.update_data(product_name=product_name)
+    await message.answer("Какое поле вы хотите изменить? (name, price, stock, category)")
+    await state.set_state(EditProduct.field)
+
+@dp.message(StateFilter(EditProduct.field))
+async def edit_product_field(message: Message, state: FSMContext):
+    field = message.text.strip().lower()
+    if field not in ['name', 'price', 'stock', 'category']:
+        await message.answer("❌ Неверное поле. Введите одно из: name, price, stock, category")
+        return
+    await state.update_data(field=field)
+    await message.answer(f"Введите новое значение для {field}:")
+    await state.set_state(EditProduct.new_value)
+
+@dp.message(StateFilter(EditProduct.new_value))
+async def edit_product_new_value(message: Message, state: FSMContext):
+    data = await state.get_data()
+    product_name = data['product_name']
+    field = data['field']
+    new_value = message.text.strip()
+
+    if field in ['price']:
+        try:
+            new_value = float(new_value)
+        except ValueError:
+            await message.answer("❌ Введите корректное число для цены.")
+            return
+    elif field in ['stock']:
+        try:
+            new_value = int(new_value)
+        except ValueError:
+            await message.answer("❌ Введите корректное число для количества на складе.")
+            return
+
+    update_product_in_db(product_name, field, new_value)
+    await message.answer(f"✅ Товар {product_name} успешно обновлен! Поле {field} теперь: {new_value}")
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data == "delete_product")
+async def delete_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    products = fetch_products_from_db()
+    if not products:
+        await callback.message.answer("Список товаров пуст. Нечего удалять.")
+        return
+    await state.set_state(DeleteProduct.select_product)
+    text = "Введите название товара, который хотите удалить:\n\n"
+    for p in products:
+        text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
+    await callback.message.answer(text)
+
+@dp.message(StateFilter(DeleteProduct.select_product))
+async def delete_product_confirm(message: Message, state: FSMContext):
+    product_name = message.text.strip()
+    products = fetch_products_from_db()
+    if not any(p['name'] == product_name for p in products):
+        await message.answer("❌ Товар с таким названием не найден. Попробуйте снова.")
+        return
+    delete_product_from_db(product_name)
+    await message.answer(f"✅ Товар {product_name} удалён!")
+    await state.clear()
 
 # ---------- SEND PRODUCT NOTIFICATION ----------
-async def send_product(user_id: int, product_name: str):
+async def send_product(user_id: int, product_name: str, account: dict):
+    """
+    account: {"login": "...", "password": "..."}
+    Отправляет пользователю данные аккаунта в приватное сообщение.
+    """
     try:
-        await bot.send_message(user_id, f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.", parse_mode="HTML")
+        text = (
+            f"✅ Оплата получена! Ваш товар <b>{product_name}</b> готов.\n\n"
+            f"🔐 Данные аккаунта:\n"
+            f"Логин: <code>{account['login']}</code>\n"
+            f"Пароль: <code>{account['password']}</code>\n\n"
+            "Сохраните данные — они больше не будут доступны публично."
+        )
+        await bot.send_message(user_id, text, parse_mode="HTML")
     except Exception as e:
         print(f"Ошибка при отправке товара: {e}")
+        raise
 
 # ---------- CRYPTOBOT ----------
 crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
