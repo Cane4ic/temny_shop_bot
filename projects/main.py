@@ -168,30 +168,6 @@ def buy_product():
 
     return jsonify({"status": "ok"})
 
-# ---------- CREATE DEPOSIT ----------
-@app.route("/create_deposit", methods=["POST"])
-def create_deposit():
-    data = request.json
-    user_id = data.get("telegram_user_id")
-    amount = data.get("amount")
-
-    if not user_id or not amount:
-        return jsonify({"status": "error", "error": "Missing fields"}), 400
-
-    try:
-        future = asyncio.run_coroutine_threadsafe(
-            bot.send_message(
-                "CryptoBot",
-                f"Пополнение баланса ${amount} для пользователя {user_id}"
-            ),
-            bot_loop
-        )
-        future.result(timeout=5)
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        print(f"Ошибка создания депозита: {e}")
-        return jsonify({"status": "error", "error": "Failed to create deposit"}), 500
-
 def run_flask():
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
@@ -334,8 +310,20 @@ async def enter_topup_amount(message: Message, state: FSMContext):
         data = await state.get_data()
         user_id = data["selected_user_id"]
         current_balance = get_user_balance(user_id)
-        update_user_balance(user_id, current_balance + amount)
-        await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${current_balance + amount}")
+        new_balance = current_balance + amount
+        update_user_balance(user_id, new_balance)
+
+        # Отправляем уведомление пользователю о новом балансе
+        try:
+            await bot.send_message(
+                user_id,
+                f"💰 Ваш баланс был пополнен на ${amount}. Новый баланс: ${new_balance}"
+            )
+        except Exception as e:
+            print(f"Ошибка при уведомлении пользователя: {e}")
+
+        # Сообщение админу
+        await message.answer(f"✅ Баланс пользователя {user_id} успешно пополнен на ${amount}. Новый баланс: ${new_balance}")
         await state.clear()
     except ValueError:
         await message.answer("❌ Введите корректную сумму.")
