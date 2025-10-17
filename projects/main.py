@@ -18,7 +18,7 @@ from telethon import TelegramClient, events
 load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEBAPP_URL")
-API_ID = int(os.environ.get("TG_API_ID"))
+API_ID = int(os.environ.get("TG_API_ID", 0))
 API_HASH = os.environ.get("TG_API_HASH")
 PHONE = os.environ.get("TG_PHONE")
 
@@ -89,6 +89,11 @@ def add_product_to_db(name, price, stock, category):
 def update_product_in_db(product_name, field, new_value):
     conn = get_db_connection()
     cur = conn.cursor()
+    # safety: allow only specific fields
+    if field not in ("price", "stock", "category"):
+        cur.close()
+        conn.close()
+        raise ValueError("Invalid field")
     cur.execute(f"UPDATE products SET {field} = %s WHERE name = %s;", (new_value, product_name))
     conn.commit()
     cur.close()
@@ -120,7 +125,7 @@ def get_user_balance(user_id: int):
 def update_user_balance(user_id: int, new_balance):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE users SET balance = %s WHERE user_id = %s;", (new_balance, user_id))
+    cur.execute("INSERT INTO users (user_id, balance) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET balance = EXCLUDED.balance;", (user_id, new_balance))
     conn.commit()
     cur.close()
     conn.close()
@@ -148,6 +153,7 @@ def fetch_and_mark_account(product_name: str):
     conn = get_db_connection()
     try:
         cur = conn.cursor()
+        # lock product row to be safe
         cur.execute("SELECT id FROM products WHERE name = %s FOR SHARE;", (product_name,))
         prod = cur.fetchone()
         if not prod:
@@ -190,6 +196,7 @@ bot_loop = None
 
 @app.route("/")
 def index():
+    # make sure index.html exists in the working dir
     return send_file("index.html")
 
 @app.route("/products")
@@ -260,8 +267,8 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 admins = set()
-ADMIN_LOGIN = "admin"
-ADMIN_PASSWORD = "1234"
+ADMIN_LOGIN = os.environ.get("ADMIN_LOGIN", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "1234")
 
 class AdminLogin(StatesGroup):
     waiting_for_login = State()
@@ -307,19 +314,23 @@ async def start(message: Message):
         web_app=WebAppInfo(url=f"{WEBAPP_URL}?user_id={user_id}")
     )
     kb.adjust(1)
-    banner = FSInputFile("banner.png")
-    caption = (
-        "✨ <b>Добро пожаловать в</b> <i>TEMNY SHOP</i> ✨\n\n"
-        "🖤 Магазин премиум-товаров и цифровых сервисов.\n"
-        "🔥 Всё быстро, безопасно и анонимно.\n\n"
-        "👇 Нажми на кнопку ниже, чтобы открыть магазин:"
-    )
-    await message.answer_photo(
-        photo=banner,
-        caption=caption,
-        reply_markup=kb.as_markup(),
-        parse_mode="HTML"
-    )
+    # banner.png should exist in working dir; if not, send message without photo
+    try:
+        banner = FSInputFile("banner.png")
+        caption = (
+            "✨ <b>Добро пожаловать в</b> <i>TEMNY SHOP</i> ✨\n\n"
+            "🖤 Магазин премиум-товаров и цифровых сервисов.\n"
+            "🔥 Всё быстро, безопасно и анонимно.\n\n"
+            "👇 Нажми на кнопку ниже, чтобы открыть магазин:"
+        )
+        await message.answer_photo(
+            photo=banner,
+            caption=caption,
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
+    except Exception:
+        await message.answer("Добро пожаловать в TEMNY SHOP! Открой магазин ниже.", reply_markup=kb.as_markup())
 
 # ---------- ADMIN LOGIN ----------
 @dp.message(Command("admin"))
@@ -356,6 +367,10 @@ async def show_admin_menu(message):
 # ---------- ADD PRODUCT ----------
 @dp.callback_query(lambda c: c.data == "add_product")
 async def start_add_product(callback: types.CallbackQuery, state: FSMContext):
+    # check admin
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён. Войдите как админ (/admin).")
+        return
     await callback.message.answer("Введите название товара:")
     await state.set_state(AddProduct.name)
 
@@ -395,6 +410,9 @@ async def add_product_category(message: Message, state: FSMContext):
 # ---------- LIST PRODUCTS WITH ACTION BUTTONS ----------
 @dp.callback_query(lambda c: c.data == "list_products")
 async def list_products_cb(callback: types.CallbackQuery):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён. Войдите как админ (/admin).")
+        return
     products = fetch_products_from_db()
     if not products:
         await callback.message.answer("Список товаров пуст.")
@@ -411,6 +429,9 @@ async def list_products_cb(callback: types.CallbackQuery):
 # ---------- EDIT PRODUCT ----------
 @dp.callback_query(lambda c: c.data.startswith("edit_"))
 async def edit_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён.")
+        return
     product_name = callback.data.replace("edit_", "")
     await state.update_data(product_name=product_name)
     kb = InlineKeyboardBuilder()
@@ -423,6 +444,9 @@ async def edit_product_cb(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("edit_field_"))
 async def choose_field_to_edit(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён.")
+        return
     field = callback.data.replace("edit_field_", "")
     await state.update_data(field=field)
     await callback.message.answer("Введите новое значение:")
@@ -448,6 +472,9 @@ async def process_edit_value(message: Message, state: FSMContext):
 # ---------- DELETE PRODUCT ----------
 @dp.callback_query(lambda c: c.data.startswith("delete_"))
 async def delete_product_cb(callback: types.CallbackQuery):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён.")
+        return
     product_name = callback.data.replace("delete_", "")
     try:
         delete_product_from_db(product_name)
@@ -458,6 +485,9 @@ async def delete_product_cb(callback: types.CallbackQuery):
 # ---------- UPLOAD ACCOUNTS ----------
 @dp.callback_query(lambda c: c.data.startswith("upload_"))
 async def upload_accounts_cb(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён.")
+        return
     product_name = callback.data.replace("upload_", "")
     await state.update_data(product_name=product_name)
     await callback.message.answer(
@@ -474,7 +504,7 @@ async def process_upload_accounts(message: Message, state: FSMContext):
     accounts_text = message.text
     lines = [l.strip() for l in accounts_text.splitlines() if l.strip()]
     accounts = []
-        for line in lines:
+    for line in lines:
         if ":" in line:
             login, password = line.split(":", 1)
             accounts.append((login.strip(), password.strip()))
@@ -507,23 +537,21 @@ crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
 async def handle_payment(event):
     msg = event.raw_text
     # Ожидаем сообщения вида: "Вы пополнили баланс на $X" или похожее
-    if "Вы пополнили баланс на $" in msg or "пополнили баланс на $" in msg:
+    if "Вы пополнили баланс на $" in msg or "пополнили баланс на $" in msg or "пополнил(а) баланс на $" in msg:
         import re
         m = re.search(r"\$([0-9]+(?:\.[0-9]{1,2})?)", msg)
         if m:
             amount = float(m.group(1))
             user_id = None
-            # Попытка получить id пользователя из ответа (reply)
             try:
-                if event.message.is_reply and event.message.reply_to_msg:
-                    # Telethon stores reply_to_msg as Message object
+                # пытаемся получить id пользователя из reply
+                if event.message.is_reply:
                     replied = await event.message.get_reply_message()
                     if replied and replied.from_id:
-                        # from_id может быть PeerUser / PeerChannel, берём user_id если есть
                         if hasattr(replied.from_id, "user_id"):
                             user_id = replied.from_id.user_id
                         else:
-                            # Иногда from_id сам int
+                            # иногда это int
                             user_id = int(replied.from_id)
             except Exception:
                 user_id = None
@@ -541,6 +569,7 @@ async def handle_payment(event):
                     print(f"[CRYPTOBOT ERROR] {e}")
 
 async def start_cryptobot_monitor():
+    # Telethon: start client with phone if needed
     await crypto_client.start(phone=PHONE)
     print("✅ CryptoBot monitor started")
     await crypto_client.run_until_disconnected()
@@ -549,13 +578,13 @@ async def start_cryptobot_monitor():
 async def main():
     global bot_loop
     bot_loop = asyncio.get_running_loop()
-    # Запускаем Flask в отдельном потоке
+    # start Flask in separate thread (for WebApp)
     t1 = Thread(target=run_flask, daemon=True)
     t1.start()
-    # Запускаем монитор CryptoBot в отдельном потоке (через asyncio.run)
+    # start CryptoBot monitor in separate thread
     t2 = Thread(target=lambda: asyncio.run(start_cryptobot_monitor()), daemon=True)
     t2.start()
-    # Запускаем polling для бота
+    # start aiogram polling
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
@@ -564,4 +593,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         print("Shutting down...")
-
