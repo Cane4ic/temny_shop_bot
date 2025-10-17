@@ -281,12 +281,10 @@ class EditProduct(StatesGroup):
 class DeleteProduct(StatesGroup):
     select_product = State()
 
-# Новый FSM для загрузки аккаунтов
 class UploadAccounts(StatesGroup):
     select_product = State()
     accounts_text = State()
 
-# FSM для пополнения баланса
 class TopUpUser(StatesGroup):
     enter_amount = State()
 
@@ -342,33 +340,35 @@ async def process_login(message: Message, state: FSMContext):
 async def process_password(message: Message, state: FSMContext):
     if message.text == ADMIN_PASSWORD:
         admins.add(message.from_user.id)
-        await message.answer("✅ Вы вошли как админ!")
         await state.clear()
-        kb = InlineKeyboardBuilder()
-        kb.button(text="➕ Добавить товар", callback_data="add_product")
-        kb.button(text="📝 Редактировать товар", callback_data="edit_product")
-        kb.button(text="❌ Удалить товар", callback_data="delete_product")
-        kb.button(text="📦 Просмотреть товары", callback_data="list_products")
-        kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
-        kb.button(text="⬆️ Загрузить аккаунты к товару", callback_data="upload_accounts")
-        kb.adjust(1)
-        await message.answer("Выберите действие:", reply_markup=kb.as_markup())
+        await show_admin_menu(message)
     else:
         await message.answer("Неверный пароль. Попробуйте снова.")
 
-# ---------- CALLBACKS FOR ADMIN ----------
+async def show_admin_menu(message):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📦 Список товаров", callback_data="list_products")
+    kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
+    kb.adjust(1)
+    await message.answer("✅ Вы вошли как админ! Выберите действие:", reply_markup=kb.as_markup())
+
+# ---------- LIST PRODUCTS WITH ACTION BUTTONS ----------
 @dp.callback_query(lambda c: c.data == "list_products")
 async def list_products_cb(callback: types.CallbackQuery):
     products = fetch_products_from_db()
     if not products:
         await callback.message.answer("Список товаров пуст.")
-    else:
-        text = "📦 Список товаров:\n\n"
-        for p in products:
-            text += f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}\n"
-        await callback.message.answer(text)
+        return
+    for p in products:
+        text = f"• {p['name']} | Цена: ${p['price']} | Остаток: {p['stock']} | Категория: {p['category']}"
+        kb = InlineKeyboardBuilder()
+        kb.button(text="📝 Редактировать", callback_data=f"edit_{p['name']}")
+        kb.button(text="❌ Удалить", callback_data=f"delete_{p['name']}")
+        kb.button(text="⬆️ Загрузить аккаунты", callback_data=f"upload_{p['name']}")
+        kb.adjust(3)
+        await callback.message.answer(text, reply_markup=kb.as_markup())
 
-# ---------- NEW TOP-UP WITH BUTTONS ----------
+# ---------- USER BALANCES ----------
 @dp.callback_query(lambda c: c.data == "user_balances")
 async def user_balances_cb(callback: types.CallbackQuery, state: FSMContext):
     conn = get_db_connection()
@@ -422,7 +422,7 @@ async def process_topup_amount(message: Message, state: FSMContext):
     )
     await state.clear()
 
-# ---------- SEND PRODUCT NOTIFICATION ----------
+# ---------- SEND PRODUCT ----------
 async def send_product(user_id: int, product_name: str, account: dict):
     try:
         text = (
