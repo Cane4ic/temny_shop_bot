@@ -347,10 +347,50 @@ async def process_password(message: Message, state: FSMContext):
 
 async def show_admin_menu(message):
     kb = InlineKeyboardBuilder()
+    kb.button(text="➕ Добавить товар", callback_data="add_product")
     kb.button(text="📦 Список товаров", callback_data="list_products")
     kb.button(text="💰 Балансы пользователей", callback_data="user_balances")
     kb.adjust(1)
     await message.answer("✅ Вы вошли как админ! Выберите действие:", reply_markup=kb.as_markup())
+
+# ---------- ADD PRODUCT ----------
+@dp.callback_query(lambda c: c.data == "add_product")
+async def start_add_product(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите название товара:")
+    await state.set_state(AddProduct.name)
+
+@dp.message(StateFilter(AddProduct.name))
+async def add_product_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Введите цену товара:")
+    await state.set_state(AddProduct.price)
+
+@dp.message(StateFilter(AddProduct.price))
+async def add_product_price(message: Message, state: FSMContext):
+    try:
+        price = float(message.text)
+        await state.update_data(price=price)
+        await message.answer("Введите количество (stock):")
+        await state.set_state(AddProduct.stock)
+    except ValueError:
+        await message.answer("❌ Введите корректное число.")
+
+@dp.message(StateFilter(AddProduct.stock))
+async def add_product_stock(message: Message, state: FSMContext):
+    try:
+        stock = int(message.text)
+        await state.update_data(stock=stock)
+        await message.answer("Введите категорию товара:")
+        await state.set_state(AddProduct.category)
+    except ValueError:
+        await message.answer("❌ Введите корректное целое число.")
+
+@dp.message(StateFilter(AddProduct.category))
+async def add_product_category(message: Message, state: FSMContext):
+    data = await state.get_data()
+    add_product_to_db(data["name"], data["price"], data["stock"], message.text)
+    await message.answer(f"✅ Товар <b>{data['name']}</b> успешно добавлен!", parse_mode="HTML")
+    await state.clear()
 
 # ---------- LIST PRODUCTS WITH ACTION BUTTONS ----------
 @dp.callback_query(lambda c: c.data == "list_products")
@@ -368,58 +408,81 @@ async def list_products_cb(callback: types.CallbackQuery):
         kb.adjust(3)
         await callback.message.answer(text, reply_markup=kb.as_markup())
 
-# ---------- USER BALANCES ----------
-@dp.callback_query(lambda c: c.data == "user_balances")
-async def user_balances_cb(callback: types.CallbackQuery, state: FSMContext):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT user_id, username, balance FROM users ORDER BY id;")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    if not rows:
-        await callback.message.answer("Нет зарегистрированных пользователей.")
-        return
-    text = "💰 Балансы пользователей:\n\n"
+# ---------- EDIT PRODUCT ----------
+@dp.callback_query(lambda c: c.data.startswith("edit_"))
+async def edit_product_cb(callback: types.CallbackQuery, state: FSMContext):
+    product_name = callback.data.replace("edit_", "")
+    await state.update_data(product_name=product_name)
     kb = InlineKeyboardBuilder()
-    for u in rows:
-        username = u['username'] or "—"
-        text += f"• {username} ({u['user_id']}): ${u['balance']}\n"
-        kb.button(text=f"Пополнить {username}", callback_data=f"topup_{u['user_id']}")
+    kb.button(text="💵 Изменить цену", callback_data="edit_field_price")
+    kb.button(text="📦 Изменить остаток", callback_data="edit_field_stock")
+    kb.button(text="🏷 Изменить категорию", callback_data="edit_field_category")
     kb.adjust(1)
-    await callback.message.answer(text, reply_markup=kb.as_markup())
+    await callback.message.answer(f"Выберите, что изменить в товаре <b>{product_name}</b>:", 
+                                  parse_mode="HTML", reply_markup=kb.as_markup())
 
-@dp.callback_query(lambda c: c.data.startswith("topup_"))
-async def start_topup(callback: types.CallbackQuery, state: FSMContext):
-    user_id = int(callback.data.split("_")[1])
-    await state.update_data(target_user_id=user_id)
-    await callback.message.answer(f"Введите сумму для пополнения пользователя <code>{user_id}</code>:", parse_mode="HTML")
-    await state.set_state(TopUpUser.enter_amount)
+@dp.callback_query(lambda c: c.data.startswith("edit_field_"))
+async def choose_field_to_edit(callback: types.CallbackQuery, state: FSMContext):
+    field = callback.data.replace("edit_field_", "")
+    await state.update_data(field=field)
+    await callback.message.answer("Введите новое значение:")
+    await state.set_state(EditProduct.new_value)
 
-@dp.message(StateFilter(TopUpUser.enter_amount))
-async def process_topup_amount(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text.strip())
-        if amount <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer("❌ Введите корректную сумму (положительное число).")
-        return
+@dp.message(StateFilter(EditProduct.new_value))
+async def process_edit_value(message: Message, state: FSMContext):
     data = await state.get_data()
-    user_id = data.get("target_user_id")
-    current_balance = get_user_balance(user_id)
-    update_user_balance(user_id, current_balance + amount)
+    product_name = data.get("product_name")
+    field = data.get("field")
+    new_value = message.text.strip()
     try:
-        await bot.send_message(
-            user_id,
-            f"💰 Ваш баланс был пополнен на ${amount:.2f}. Новый баланс: ${current_balance + amount:.2f}"
-        )
+        if field == "price":
+            new_value = float(new_value)
+        elif field == "stock":
+            new_value = int(new_value)
+        update_product_in_db(product_name, field, new_value)
+        await message.answer(f"✅ Товар <b>{product_name}</b> обновлён!", parse_mode="HTML")
     except Exception as e:
-        print(f"[ERROR] Не удалось отправить уведомление пользователю {user_id}: {e}")
-    await message.answer(
-        f"✅ Баланс пользователя <code>{user_id}</code> успешно пополнен на ${amount:.2f}. Новый баланс: ${current_balance + amount:.2f}",
+        await message.answer(f"❌ Ошибка: {e}")
+    await state.clear()
+
+# ---------- DELETE PRODUCT ----------
+@dp.callback_query(lambda c: c.data.startswith("delete_"))
+async def delete_product_cb(callback: types.CallbackQuery):
+    product_name = callback.data.replace("delete_", "")
+    try:
+        delete_product_from_db(product_name)
+        await callback.message.answer(f"❌ Товар <b>{product_name}</b> удалён.", parse_mode="HTML")
+    except Exception as e:
+        await callback.message.answer(f"Ошибка при удалении: {e}")
+
+# ---------- UPLOAD ACCOUNTS ----------
+@dp.callback_query(lambda c: c.data.startswith("upload_"))
+async def upload_accounts_cb(callback: types.CallbackQuery, state: FSMContext):
+    product_name = callback.data.replace("upload_", "")
+    await state.update_data(product_name=product_name)
+    await callback.message.answer(
+        f"📤 Введите список аккаунтов для <b>{product_name}</b> в формате:\n"
+        "<code>логин:пароль</code>\n\nКаждая пара — с новой строки.",
         parse_mode="HTML"
     )
+    await state.set_state(UploadAccounts.accounts_text)
+
+@dp.message(StateFilter(UploadAccounts.accounts_text))
+async def process_upload_accounts(message: Message, state: FSMContext):
+    data = await state.get_data()
+    product_name = data.get("product_name")
+    accounts_text = message.text
+    lines = [l.strip() for l in accounts_text.splitlines() if l.strip()]
+    accounts = []
+        for line in lines:
+        if ":" in line:
+            login, password = line.split(":", 1)
+            accounts.append((login.strip(), password.strip()))
+    try:
+        add_accounts_to_db(product_name, accounts)
+        await message.answer(f"✅ Загружено {len(accounts)} аккаунтов для товара <b>{product_name}</b>.", parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при загрузке: {e}")
     await state.clear()
 
 # ---------- SEND PRODUCT ----------
@@ -437,25 +500,43 @@ async def send_product(user_id: int, product_name: str, account: dict):
         print(f"Ошибка при отправке товара: {e}")
         raise
 
-# ---------- CRYPTOBOT ----------
+# ---------- CRYPTOBOT MONITOR ----------
 crypto_client = TelegramClient("cryptobot_session", API_ID, API_HASH)
 
 @crypto_client.on(events.NewMessage(from_users="CryptoBot"))
 async def handle_payment(event):
     msg = event.raw_text
-    if "Вы пополнили баланс на $" in msg:
+    # Ожидаем сообщения вида: "Вы пополнили баланс на $X" или похожее
+    if "Вы пополнили баланс на $" in msg or "пополнили баланс на $" in msg:
         import re
         m = re.search(r"\$([0-9]+(?:\.[0-9]{1,2})?)", msg)
         if m:
             amount = float(m.group(1))
             user_id = None
-            if event.message.is_reply and hasattr(event.message.reply_to_msg, 'from_id'):
-                user_id = event.message.reply_to_msg.from_id.user_id if hasattr(event.message.reply_to_msg.from_id, 'user_id') else None
+            # Попытка получить id пользователя из ответа (reply)
+            try:
+                if event.message.is_reply and event.message.reply_to_msg:
+                    # Telethon stores reply_to_msg as Message object
+                    replied = await event.message.get_reply_message()
+                    if replied and replied.from_id:
+                        # from_id может быть PeerUser / PeerChannel, берём user_id если есть
+                        if hasattr(replied.from_id, "user_id"):
+                            user_id = replied.from_id.user_id
+                        else:
+                            # Иногда from_id сам int
+                            user_id = int(replied.from_id)
+            except Exception:
+                user_id = None
+
             if user_id:
                 try:
                     current_balance = get_user_balance(user_id)
                     update_user_balance(user_id, current_balance + amount)
                     print(f"💰 Баланс пользователя {user_id} обновлен на +{amount}$")
+                    try:
+                        await bot.send_message(user_id, f"💰 Ваш баланс был пополнен на ${amount:.2f}.")
+                    except Exception as e:
+                        print(f"[WARN] Не удалось уведомить пользователя {user_id}: {e}")
                 except Exception as e:
                     print(f"[CRYPTOBOT ERROR] {e}")
 
@@ -468,12 +549,19 @@ async def start_cryptobot_monitor():
 async def main():
     global bot_loop
     bot_loop = asyncio.get_running_loop()
+    # Запускаем Flask в отдельном потоке
     t1 = Thread(target=run_flask, daemon=True)
     t1.start()
+    # Запускаем монитор CryptoBot в отдельном потоке (через asyncio.run)
     t2 = Thread(target=lambda: asyncio.run(start_cryptobot_monitor()), daemon=True)
     t2.start()
+    # Запускаем polling для бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     init_db()
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Shutting down...")
+
