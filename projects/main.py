@@ -89,7 +89,6 @@ def add_product_to_db(name, price, stock, category):
 def update_product_in_db(product_name, field, new_value):
     conn = get_db_connection()
     cur = conn.cursor()
-    # safety: allow only specific fields
     if field not in ("price", "stock", "category"):
         cur.close()
         conn.close()
@@ -153,7 +152,6 @@ def fetch_and_mark_account(product_name: str):
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        # lock product row to be safe
         cur.execute("SELECT id FROM products WHERE name = %s FOR SHARE;", (product_name,))
         prod = cur.fetchone()
         if not prod:
@@ -314,7 +312,6 @@ async def start(message: Message):
         web_app=WebAppInfo(url=f"{WEBAPP_URL}?user_id={user_id}")
     )
     kb.adjust(1)
-    # banner.png should exist in working dir; if not, send message without photo
     try:
         banner = FSInputFile("banner.png")
         caption = (
@@ -425,6 +422,66 @@ async def list_products_cb(callback: types.CallbackQuery):
         kb.button(text="⬆️ Загрузить аккаунты", callback_data=f"upload_{p['name']}")
         kb.adjust(3)
         await callback.message.answer(text, reply_markup=kb.as_markup())
+
+# ---------- USER BALANCES (VIEW + EDIT) ----------
+class EditUserBalance(StatesGroup):
+    waiting_for_amount = State()
+
+@dp.callback_query(lambda c: c.data == "user_balances")
+async def show_user_balances(callback: types.CallbackQuery):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён. Войдите как админ (/admin).")
+        return
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, username, balance FROM users ORDER BY balance DESC;")
+    users = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if not users:
+        await callback.message.answer("👥 Пока нет зарегистрированных пользователей.")
+        return
+
+    for u in users:
+        username = f"@{u['username']}" if u['username'] else f"ID {u['user_id']}"
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✏️ Изменить баланс", callback_data=f"edit_balance_{u['user_id']}")
+        kb.adjust(1)
+        await callback.message.answer(
+            f"👤 {username}\n💰 Баланс: <b>${u['balance']:.2f}</b>",
+            parse_mode="HTML",
+            reply_markup=kb.as_markup()
+        )
+
+@dp.callback_query(lambda c: c.data.startswith("edit_balance_"))
+async def start_edit_user_balance(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in admins:
+        await callback.message.answer("Доступ запрещён.")
+        return
+
+    user_id = int(callback.data.replace("edit_balance_", ""))
+    await state.update_data(edit_user_id=user_id)
+    await callback.message.answer(
+        f"Введите новый баланс для пользователя ID <code>{user_id}</code> (в $):",
+        parse_mode="HTML"
+    )
+    await state.set_state(EditUserBalance.waiting_for_amount)
+
+@dp.message(StateFilter(EditUserBalance.waiting_for_amount))
+async def process_edit_user_balance(message: Message, state: FSMContext):
+    data = await state.get_data()
+    user_id = data.get("edit_user_id")
+    try:
+        new_balance = float(message.text.strip())
+        update_user_balance(user_id, new_balance)
+        await message.answer(f"✅ Баланс пользователя ID <b>{user_id}</b> обновлён до ${new_balance:.2f}", parse_mode="HTML")
+        await state.clear()
+    except ValueError:
+        await message.answer("❌ Введите корректное число.")
+    except Exception as e:
+        await message.answer(f"Ошибка при обновлении: {e}")
 
 # ---------- EDIT PRODUCT ----------
 @dp.callback_query(lambda c: c.data.startswith("edit_"))
